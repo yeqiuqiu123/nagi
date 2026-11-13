@@ -1,0 +1,9 @@
+id,phrase,source,speaker,bin,status
+v1,"What are my agents doing right now?",design/product.md (owner's two questions),owner (a heavy agent user),need,verbatim
+v2,"Am I hitting limits?",design/product.md,owner,need,verbatim
+v3,"i like now line and lineage and lull but we should really up visibility and readability",design/project-bar.md,owner,taste,verbatim
+v4,"an agent silently waiting 40 minutes for an approval",https://www.producthunt.com/p/vibecoding/your-ai-agent-is-waiting-for-you-your-attention-isn-t-how-much-time-do-you-lose-to-this,Product Hunt poster (5 parallel sessions),pain,search summary (page not opened; paraphrase)
+v5,"terminal tabs don't show which project each agent belongs to; they're all flat",https://crystl.dev/blog/monitor-multiple-agents/,blog author,pain,search summary (paraphrase)
+v6,"weekly limit ran out even though I never hit the 5-hour limit",https://community.openai.com/t/weekly-limit-ran-out-even-though-i-never-hit-the-5-hour-limit/1376981,Codex user (thread title),pain,verbatim title
+v7,"app says I've hit the usage limit but /status shows 97% left",https://community.openai.com/t/chatgpt-codex-app-says-i-ve-hit-the-usage-limit-but-status-shows-97-left/1392886,Codex user (thread title),pain,verbatim title
+v8,"Running 3-4 Claude Code / Codex sessions at once: what breaks first for you?",https://www.producthunt.com/p/vibecoding/running-3-4-claude-code-codex-sessions-at-once-what-breaks-first-for-you,Product Hunt thread title,context,verbatim title

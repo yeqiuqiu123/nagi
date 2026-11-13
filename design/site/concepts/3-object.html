@@ -1,0 +1,40 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="color-scheme" content="dark light">
+<title>Concept 3 · One Object</title>
+<link rel="stylesheet" href="shared.css">
+<style>
+  .page { min-height: 100vh; display: grid; grid-template-columns: minmax(0, 520px) 400px; gap: 96px; align-content: center; justify-content: center; padding: 48px; }
+  .demo-frame { border-radius: 12px; box-shadow: 0 0 0 .5px var(--stroke), 0 18px 48px rgb(0 0 0 / .38); }
+  .left { align-self: center; }
+  h1.display { font-size: 52px; margin-top: 28px; }
+  .cmd { display: block; margin-top: 36px; color: var(--title); }
+  .row { display: flex; gap: 22px; margin-top: 16px; font-size: 15px; align-items: baseline; flex-wrap: wrap; }
+  .row button { font: inherit; background: none; border: 0; padding: 0; color: var(--rose-text); font-weight: 600; cursor: pointer; }
+  .row a { color: var(--secondary); }
+  .privacy { margin-top: 40px; color: var(--secondary); font-size: 15px; }
+  @media (max-width: 900px) {
+    .page { grid-template-columns: 1fr; gap: 32px; padding: 32px 16px; }
+    h1.display { font-size: 36px; }
+    .cmd { word-break: break-all; }
+  }
+</style>
+</head>
+<body>
+<main class="page">
+  <div class="left">
+    <a class="mark" href="#"><span class="kanji" lang="ja">凪</span><span class="word">nagi</span></a>
+    <h1 class="display">Nagi shows what your agents are doing and when your limits reset.</h1>
+    <code class="cmd">git clone https://github.com/yeqiuqiu123/nagi.git &amp;&amp; cd nagi &amp;&amp; ./install.sh</code>
+    <div class="row"><button type="button">Copy</button><a href="https://github.com/yeqiuqiu123/nagi">Source on GitHub</a><span class="tertiary">Linux and macOS</span></div>
+    <p class="privacy">Read-only, on your computer only. <a href="#">How Nagi stays private</a></p>
+  </div>
+  <div class="demo" data-scene="story"><iframe class="demo-frame" title="The Nagi panel running on demo data" data-src="../../../site/panel/"></iframe>
+    <div class="demo-controls"><span>Demo data, sped up.</span><button type="button" data-demo="toggle">Pause</button><button type="button" data-demo="replay" hidden>Replay</button></div></div>
+</main>
+<script src="../../../site/js/panel-embed.js"></script>
+</body>
+</html>

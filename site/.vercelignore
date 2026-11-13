@@ -1,0 +1,6 @@
+.env*
+.vercel
+README.md
+tests
+scripts
+.gitignore

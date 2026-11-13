@@ -1,0 +1,71 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="color-scheme" content="dark light">
+<title>Concept 5 · Everything It Says</title>
+<link rel="stylesheet" href="shared.css">
+<style>
+  .page { max-width: 1280px; margin: 0 auto; padding: 0 48px 96px; }
+  header { display: flex; align-items: center; justify-content: space-between; height: 72px; }
+  .grid { display: grid; grid-template-columns: minmax(0, 1fr) 400px; gap: 72px; }
+  .stick { position: sticky; top: 32px; align-self: start; }
+  .demo-frame { border-radius: 12px; box-shadow: 0 0 0 .5px var(--stroke), 0 18px 48px rgb(0 0 0 / .38); }
+  h1.display { font-size: 60px; margin: 48px 0 10px; }
+  .intro { color: var(--secondary); margin: 0 0 32px; max-width: 34em; }
+  table { width: 100%; border-collapse: collapse; font-size: 15px; }
+  th { text-align: left; color: var(--tertiary); font-weight: 500; font-size: 13px; padding: 0 14px 10px 0; }
+  td { border-top: 1px solid var(--hair); padding: 11px 14px 11px 0; vertical-align: top; color: var(--secondary); }
+  td.n { color: var(--tertiary); font-variant-numeric: tabular-nums; width: 2.5em; }
+  td.say { color: var(--title); font-weight: 560; font-variant-numeric: tabular-nums; }
+  td.say.asks { color: var(--rose-text); } td.say.stuck { color: var(--amber-text); }
+  td.never { color: var(--tertiary); text-decoration: line-through; }
+  tr[data-scene] { cursor: default; }
+  tr[data-scene]:hover td, tr[data-scene]:focus-within td { background: var(--hover); }
+  tr button { all: unset; } tr button:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; border-radius: 3px; }
+  .cmd { color: var(--title); }
+  @media (max-width: 900px) {
+    .page { padding: 0 16px 72px; } .grid { grid-template-columns: 1fr; gap: 24px; } .stick { position: static; }
+    h1.display { font-size: 38px; margin-top: 24px; } td.never, th.never { display: none; } .cmd { word-break: break-all; }
+  }
+</style>
+</head>
+<body>
+<div class="page">
+  <header><a class="mark" href="#"><span class="kanji" lang="ja">凪</span><span class="word">nagi</span></a><a href="https://github.com/yeqiuqiu123/nagi" class="secondary" style="text-decoration:none;font-size:15px">GitHub</a></header>
+  <div class="grid">
+    <div>
+      <h1 class="display">Everything Nagi says, and when.</h1>
+      <p class="intro">A menu-bar glance for people running AI coding agents. Every line below is quoted from the panel's code. Choose one to see it.</p>
+      <table>
+        <thead><tr><th>#</th><th>Nagi says</th><th>When</th><th class="never">Never</th></tr></thead>
+        <tbody>
+          <tr data-scene="still"><td class="n">01</td><td class="say"><button>3 running</button></td><td>Agents are working. Each one is listed by its title.</td><td class="never">Agents 3</td></tr>
+          <tr data-scene="still"><td class="n">02</td><td class="say"><button>all spoke in the last 4 m</button></td><td>Every running agent has spoken recently.</td><td class="never">All good!</td></tr>
+          <tr data-scene="asks"><td class="n">03</td><td class="say asks"><button>asks you · 3 m</button></td><td>An agent is waiting on your answer or approval.</td><td class="never">Action required</td></tr>
+          <tr data-scene="stuck"><td class="n">04</td><td class="say stuck"><button>silent 15 m</button></td><td>A running agent has been quiet for your stuck time.</td><td class="never">Stalled</td></tr>
+          <tr data-scene="still"><td class="n">05</td><td class="say"><button>completed</button></td><td>A parent finished; its running children still hang from it.</td><td class="never">Done ✓</td></tr>
+          <tr data-scene="still"><td class="n">06</td><td class="say"><button>empty until Tue 17 Nov 05:09</button></td><td>A limit window is used up, by a fresh check.</td><td class="never">0%</td></tr>
+          <tr data-scene="still"><td class="n">07</td><td class="say"><button>64% left · Wed 18 Nov 19:31</button></td><td>Every window: what's left, then the date it resets.</td><td class="never">Resets in 3d</td></tr>
+          <tr data-scene="limits"><td class="n">08</td><td class="say"><button>couldn't check · tried 17:31</button></td><td>A limits read failed. Only then.</td><td class="never">0% · Error</td></tr>
+          <tr data-scene="offline"><td class="n">09</td><td class="say"><button>Can't reach T3 Code</button></td><td>The last list stays, dated, with no alarms.</td><td class="never">0 running</td></tr>
+          <tr data-scene="quiet"><td class="n">10</td><td class="say"><button>nothing running since 17:11</button></td><td>All agents have ended.</td><td class="never">Idle</td></tr>
+          <tr data-scene="still"><td class="n">11</td><td class="say"><button>15 ended since Thu 17:31</button></td><td>What finished in the last 24 hours, collapsed.</td><td class="never">History</td></tr>
+          <tr><td class="n">12</td><td class="say">git clone … &amp;&amp; ./install.sh</td><td>When you'd like it on Linux or macOS. <a href="https://github.com/yeqiuqiu123/nagi">Source on GitHub</a></td><td class="never"></td></tr>
+        </tbody>
+      </table>
+    </div>
+    <div class="stick"><div class="demo" data-scene="still"><iframe class="demo-frame" id="frame" title="The Nagi panel running on demo data" data-src="../../../site/panel/"></iframe><div class="demo-controls"><span>Demo data.</span></div></div></div>
+  </div>
+</div>
+<script src="../../../site/js/panel-embed.js"></script>
+<script>
+  const frame = document.getElementById('frame');
+  document.querySelectorAll('tr[data-scene]').forEach((tr) => {
+    const go = () => { try { frame.contentWindow.NagiDemo.setScene(tr.dataset.scene); } catch {} };
+    tr.addEventListener('mouseenter', go); tr.addEventListener('focusin', go); tr.addEventListener('click', go);
+  });
+</script>
+</body>
+</html>

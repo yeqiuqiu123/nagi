@@ -1,0 +1,10 @@
+[Desktop Entry]
+Type=Application
+Name=Nagi
+Comment=Local T3 agents and limits
+Exec=@COMMAND@
+Icon=view-list-symbolic
+Terminal=false
+NoDisplay=true
+DBusActivatable=true
+X-GNOME-UsesNotifications=true

@@ -1,0 +1,209 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="color-scheme" content="dark light">
+<title>Concept 1 · The Line</title>
+<link rel="stylesheet" href="shared.css">
+<style>
+  .page { position: relative; max-width: 1200px; margin: 0 auto; padding: 0 48px 96px 88px; }
+  header { display: flex; align-items: center; justify-content: space-between; height: 72px; }
+  header nav a { font-size: 15px; color: var(--secondary); text-decoration: none; }
+  header nav a:hover { color: var(--title); }
+  .opening { position: relative; display: grid; grid-template-columns: minmax(0, 1fr) 400px; column-gap: 72px; padding-top: 24px; }
+  .copy { position: relative; }
+  .lede { font-size: 20px; line-height: 1.45; color: var(--secondary); max-width: 30em; margin: 0; }
+  .lede strong { color: var(--title); font-weight: 560; }
+  .q { font-size: 44px; }
+  .q-limits { position: absolute; left: 0; right: 0; }
+  .q-agents { position: absolute; left: 0; right: 0; }
+  .q + p { margin: 14px 0 0; color: var(--secondary); max-width: 32em; }
+  .act { display: flex; align-items: center; gap: 14px; margin-top: 28px; flex-wrap: wrap; }
+  .install { display: inline-flex; align-items: center; gap: 12px; position: relative; padding-left: 22px; }
+  .install::before { content: ""; position: absolute; left: 0; top: 50%; width: 10px; height: 10px; margin-top: -5px; border-radius: 50%; background: var(--rose); }
+  .install .cmd { color: var(--title); white-space: nowrap; }
+  .copybtn { font: inherit; font-size: 15px; background: none; border: 0; padding: 0; color: var(--rose-text); font-weight: 600; cursor: pointer; }
+  .gh { font-size: 15px; color: var(--secondary); }
+  .panelwrap { position: relative; z-index: 2; }
+  .panelwrap .demo-frame { border-radius: 12px; box-shadow: 0 0 0 .5px var(--stroke), 0 18px 48px rgb(0 0 0 / .38); }
+  .pageline { position: absolute; left: calc(50% - 50vw); width: 100vw; height: 2px; background: var(--rose); z-index: 1; transform-origin: center; pointer-events: none; }
+  .geo { position: absolute; left: 0; top: 0; width: 100%; pointer-events: none; overflow: visible; z-index: 0; }
+  .geo path { fill: none; stroke: var(--stroke); stroke-width: 2; stroke-linecap: round; }
+  .geo circle { fill: var(--bg); stroke: var(--stroke); stroke-width: 2; }
+  .geo circle.ask { fill: var(--rose); stroke: none; }
+  section.branch { position: relative; margin-top: 120px; max-width: 760px; }
+  section.branch h2 { font-size: 32px; }
+  section.branch p { color: var(--secondary); margin: 14px 0 0; max-width: 36em; }
+  .says { width: 100%; border-collapse: collapse; margin-top: 22px; font-size: 15px; }
+  .says th { text-align: left; font-weight: 500; color: var(--tertiary); font-size: 13px; padding: 0 16px 10px 0; }
+  .says td { padding: 10px 16px 10px 0; border-top: 1px solid var(--hair); vertical-align: top; color: var(--secondary); }
+  .says td:first-child { color: var(--title); font-weight: 560; white-space: nowrap; }
+  .says .never { color: var(--tertiary); text-decoration: line-through; text-decoration-color: var(--tertiary); }
+  .says .stuck { color: var(--amber-text); } .says .asks { color: var(--rose-text); }
+  .sources { list-style: none; padding: 0; margin: 18px 0 0; columns: 2; column-gap: 40px; font-size: 15px; }
+  .sources li { padding: 7px 0; border-top: 1px solid var(--hair); display: flex; justify-content: space-between; break-inside: avoid; }
+  .sources li span { color: var(--tertiary); }
+  .sources li.on span { color: var(--title); font-weight: 560; }
+  footer { margin-top: 120px; color: var(--tertiary); font-size: 13px; }
+  @media (max-width: 900px) {
+    .page { padding: 0 16px 72px 40px; }
+    .opening .copy { display: contents; }
+    .opening { display: flex; flex-direction: column; }
+    .lede { order: 0; } #q-limits { order: 1; margin-top: 28px; } .panelwrap { order: 2; } #q-agents { order: 3; }
+    .opening { grid-template-columns: 1fr; }
+    .q-limits, .q-agents { position: static; }
+    .q { font-size: 32px; }
+    .panelwrap { margin: 28px 0 28px -24px; width: calc(100% + 24px); }
+    .lede { font-size: 18px; }
+    .sources { columns: 1; }
+    .says td:nth-child(3), .says th:nth-child(3) { display: none; }
+    .install .cmd { white-space: normal; word-break: break-all; font-size: 14px; }
+  }
+</style>
+</head>
+<body>
+<div class="page" id="page">
+  <svg class="geo" id="geo" aria-hidden="true"></svg>
+  <div class="pageline" id="pageline" aria-hidden="true"></div>
+  <header>
+    <a class="mark" href="#"><span class="kanji" lang="ja">凪</span><span class="word">nagi</span></a>
+    <nav><a href="https://github.com/yeqiuqiu123/nagi">GitHub</a></nav>
+  </header>
+  <div class="opening">
+    <div class="copy" id="copy">
+      <h1 class="lede"><strong>Nagi</strong> is a small glance in your menu bar or tray for people running AI coding agents. It answers two questions.</h1>
+      <div class="q-limits" id="q-limits">
+        <h2 class="display q">Am I about to hit my limits?</h2>
+        <p>One line per account: the lowest window first, the % left and the date it resets. Two Codex accounts stay two lines.</p>
+      </div>
+      <div class="q-agents" id="q-agents">
+        <h2 class="display q">What are my agents doing right now?</h2>
+        <p>Each agent by its title, hanging from the one that started it. A line grows under it while it's quiet.</p>
+        <div class="act">
+          <span class="install"><code class="cmd">./install.sh</code><button class="copybtn" type="button">Copy</button></span>
+          <a class="gh" href="https://github.com/yeqiuqiu123/nagi">Source on GitHub</a>
+        </div>
+      </div>
+    </div>
+    <div class="panelwrap">
+      <div class="demo" data-scene="story">
+        <iframe class="demo-frame" id="frame" title="The Nagi panel running on demo data" data-src="../../../site/panel/"></iframe>
+        <div class="demo-controls"><span>Demo data, sped up.</span><button type="button" data-demo="toggle">Pause</button><button type="button" data-demo="replay" hidden>Replay</button></div>
+      </div>
+    </div>
+  </div>
+
+  <section class="branch" data-node="plain">
+    <h2 class="display">It stays on your computer.</h2>
+    <p>No cloud, no account, no telemetry. Nagi reads T3 Code on your own computers with a read-only token and talks to nothing else. It can't stop, send or approve anything.</p>
+    <p>A small reader answers only you, on 127.0.0.1. To watch another computer, it connects over your own Tailscale.</p>
+  </section>
+
+  <section class="branch" data-node="plain">
+    <h2 class="display">It says what it knows, and when it doesn't.</h2>
+    <table class="says">
+      <thead><tr><th>Nagi says</th><th>When</th><th>Never</th></tr></thead>
+      <tbody>
+        <tr><td>empty until Tue 17 Nov 05:09</td><td>A window is used up, by a fresh check.</td><td class="never">0% · Resets in 3d</td></tr>
+        <tr><td>couldn't check · tried 17:31</td><td>A limits read failed. The time it tried, nothing else.</td><td class="never">0% · Error</td></tr>
+        <tr><td class="stuck">silent 15 m</td><td>A running agent hasn't spoken for your stuck time.</td><td class="never">Stalled!</td></tr>
+        <tr><td class="asks">asks you · 3 m</td><td>An agent is waiting on a question or an approval.</td><td class="never">Action required</td></tr>
+        <tr><td>Can't reach T3 Code</td><td>The last list stays, dated, with no alarms.</td><td class="never">0 running</td></tr>
+      </tbody>
+    </table>
+  </section>
+
+  <section class="branch" data-node="plain">
+    <h2 class="display">Works with T3 Code today.</h2>
+    <p>Each agent app is a small adapter. These are next.</p>
+    <ul class="sources">
+      <li class="on">T3 Code <span>Works today</span></li>
+      <li>Codex <span>Coming soon</span></li><li>Claude Code <span>Coming soon</span></li><li>OpenBot <span>Coming soon</span></li>
+      <li>Pi <span>Coming soon</span></li><li>oh-my-pi <span>Coming soon</span></li><li>Hermes <span>Coming soon</span></li>
+      <li>OpenClaw <span>Coming soon</span></li><li>OpenCode <span>Coming soon</span></li>
+    </ul>
+  </section>
+
+  <section class="branch" data-node="ask" id="install">
+    <h2 class="display">Install Nagi</h2>
+    <p>On Linux or macOS, with Python 3.11 or newer. It asks before it uses sudo and never overwrites your data.</p>
+    <div class="act"><span class="install"><code class="cmd">git clone https://github.com/yeqiuqiu123/nagi.git &amp;&amp; cd nagi &amp;&amp; ./install.sh</code><button class="copybtn" type="button">Copy</button></span></div>
+  </section>
+
+  <footer>凪 nagi means a calm sea. Source on GitHub · licence coming soon.</footer>
+</div>
+<script src="../../../site/js/panel-embed.js"></script>
+<script>
+(() => {
+  const page = document.getElementById('page'); const frame = document.getElementById('frame');
+  const line = document.getElementById('pageline'); const geo = document.getElementById('geo');
+  const narrow = matchMedia('(max-width: 900px)');
+  const SVG = 'http://www.w3.org/2000/svg';
+  const el = (t, a) => { const e = document.createElementNS(SVG, t); for (const k in a) e.setAttribute(k, a[k]); return e; };
+  const inner = () => { try { return frame.contentDocument; } catch { return null; } };
+  const zoom = () => 1;
+  let lineY = 0; let regions = null;
+  // The page line is the panel's now line, continued: same y, same travel, same fade.
+  function measure() {
+    const d = inner(); if (!d) return;
+    const nl = d.getElementById('nowline'); const lim = d.getElementById('limits'); const past = d.getElementById('past');
+    if (!nl || !lim) return;
+    const fr = frame.getBoundingClientRect(); const pr = page.getBoundingClientRect(); const z = zoom();
+    // Rects inside the frame are in its own (unzoomed) CSS px; the frame shows them at z.
+    const nr = nl.getBoundingClientRect(); const lr = lim.getBoundingClientRect();
+    // Measured at rest: the travel's transform (if one is playing) is followed separately.
+    const cs = d.defaultView.getComputedStyle(nl);
+    const moving = cs.transform === 'none' ? 0 : new DOMMatrixReadOnly(cs.transform).m42;
+    const y = fr.top - pr.top + (nr.top - moving + nr.height / 2) * z;
+    lineY = y; line.style.top = (y - 1) + 'px';
+    regions = { lim: fr.top - pr.top + (lr.top + lr.height / 2) * z, past: y + 22 * z };
+    if (!narrow.matches) {
+      const ql = document.getElementById('q-limits'); const qa = document.getElementById('q-agents'); const copy = document.getElementById('copy');
+      const cy = copy.getBoundingClientRect().top - pr.top;
+      ql.style.top = Math.max(document.querySelector('.lede').offsetHeight + 28, regions.lim - cy - ql.offsetHeight / 2) + 'px';
+      qa.style.top = (regions.past - cy) + 'px';
+      copy.style.minHeight = (qa.offsetTop + qa.offsetHeight) + 'px';
+    }
+    draw();
+  }
+  function follow() {
+    const d = inner(); const nl = d && d.getElementById('nowline');
+    if (nl) {
+      const cs = d.defaultView.getComputedStyle(nl);
+      const m = cs.transform === 'none' ? 0 : new DOMMatrixReadOnly(cs.transform).m42;
+      line.style.transform = m ? 'translateY(' + m * zoom() + 'px)' : '';
+      line.style.opacity = cs.opacity;
+    }
+    requestAnimationFrame(follow);
+  }
+  // The trunk runs down from the line; each section hangs from it on a branch with a node.
+  const drawn = new WeakSet();
+  function draw() {
+    geo.replaceChildren(); geo.setAttribute('height', page.scrollHeight);
+    const pr = page.getBoundingClientRect(); const tx = narrow.matches ? 18 : 40;
+    const heads = [...document.querySelectorAll('section.branch')];
+    const ys = heads.map((s) => { const h = s.querySelector('h2').getBoundingClientRect(); return { s, y: h.top - pr.top + 22, x: h.left - pr.left }; });
+    if (!ys.length) return;
+    geo.append(el('path', { d: `M${tx} ${lineY} V${ys[ys.length - 1].y - 10}` }));
+    ys.forEach(({ s, y, x }) => {
+      const p = el('path', { d: `M${tx} ${y - 10} Q${tx} ${y} ${tx + 10} ${y} H${x - 14}` });
+      geo.append(p, el('circle', { cx: x - 8, cy: y, r: 5, class: s.dataset.node === 'ask' ? 'ask' : '' }));
+      if (!drawn.has(s)) { p.dataset.wait = '1'; }
+    });
+    geo.append(el('circle', { cx: tx, cy: lineY, r: 5, class: 'ask' }));
+  }
+  frame.addEventListener('panelresize', measure);
+  window.addEventListener('resize', measure);
+  frame.addEventListener('load', () => { measure(); setTimeout(measure, 300); });
+  requestAnimationFrame(follow);
+  document.querySelectorAll('.copybtn').forEach((b) => b.addEventListener('click', async () => {
+    const text = b.previousElementSibling.textContent;
+    try { await navigator.clipboard.writeText(text.includes('clone') ? text : 'git clone https://github.com/yeqiuqiu123/nagi.git && cd nagi && ./install.sh'); b.textContent = 'Copied'; }
+    catch { b.textContent = "Couldn't copy"; }
+    setTimeout(() => { b.textContent = 'Copy'; }, 1600);
+  }));
+})();
+</script>
+</body>
+</html>

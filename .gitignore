@@ -1,0 +1,14 @@
+/data/
+/private-fixtures/
+/evidence/
+/work/
+/exports/
+/OUT/
+__pycache__/
+*.pyc
+.ruff_cache/
+.playwright-mcp/
+.build/
+dist/
+/design/references/
+/design/content/

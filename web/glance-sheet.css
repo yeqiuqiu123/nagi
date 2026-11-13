@@ -1,0 +1,12 @@
+/* Settings sheet open and close (occasional): translateY −12 px → 0 with opacity, the
+   scrim fades to .62. In 240 ms, out 190 ms (about 20% shorter), --ease-out from the
+   motion rules. CSS transitions, so Esc mid-flight reverses. */
+:root { --ease-out: cubic-bezier(0.23, 1, 0.32, 1); }
+.scrim { transition: opacity 190ms var(--ease-out); }
+.sheet { transition: opacity 190ms var(--ease-out), transform 190ms var(--ease-out); }
+.sheet-layer[data-open="true"] .scrim, .sheet-layer[data-open="true"] .sheet { transition-duration: 240ms; }
+/* Keyboard, Return, Esc and the tray: no transition (motion rule 1). */
+.sheet-layer.instant .scrim, .sheet-layer.instant .sheet { transition: none; }
+@media (prefers-reduced-motion: reduce) {
+  .scrim, .sheet, .sheet-layer[data-open="true"] .scrim, .sheet-layer[data-open="true"] .sheet { transition: none; }
+}

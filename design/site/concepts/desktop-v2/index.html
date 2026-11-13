@@ -1,0 +1,337 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="color-scheme" content="dark light">
+<meta name="theme-color" content="#18131d" media="(prefers-color-scheme: dark)">
+<meta name="theme-color" content="#f2f0f6" media="(prefers-color-scheme: light)">
+<title>PROTOTYPE desktop v2 · Nagi · see what your coding agents are doing</title>
+<meta name="description" content="Nagi is a small glance in your menu bar or tray for when you're running a lot of AI coding agents. It shows each agent by name and each account's limits with their reset dates. Local and read-only.">
+<meta property="og:title" content="Nagi">
+<meta property="og:description" content="A small menu-bar glance for people running AI coding agents. Local and read-only.">
+<meta property="og:type" content="website">
+<link rel="icon" href="../../../../site/favicon.svg" type="image/svg+xml">
+<link rel="preload" href="../../../../site/panel/fonts/inter-opsz.woff2" as="font" type="font/woff2" crossorigin>
+<style>
+/* Nagi website. The panel's tokens verbatim (web/glance-v2.css), Inter, one rose line.
+   Grammar: vertical is time and parentage, horizontal is silence, rose is now or "asks you".
+   The page draws no rule or divider of its own: only the panel's line, trunk, branches and nodes. */
+@font-face { font-family: "Inter"; src: url("../../../../site/panel/fonts/inter-opsz.woff2") format("woff2"); font-weight: 100 900; font-display: swap; }
+@font-face { font-family: "Nagi Mark"; src: url("../../../../site/panel/fonts/nagi-glyph-serif.woff2") format("woff2"); font-display: block; unicode-range: U+51EA; }
+
+:root {
+  --bg: #18131d; --title: #f5f1f8; --secondary: #cdc4d6; --tertiary: #a397b0;
+  --stroke: #9486a3; --rose: #ff7aa5; --rose-text: #ff9dbb; --focus: #cdc4d6;
+  --mono: ui-monospace, "SF Mono", "JetBrains Mono", "Cascadia Mono", Menlo, Consolas, monospace;
+  /* Geometry. --line-y is the panel's now line, measured inside the panel at rest; JS keeps it exact.
+     --slot is the panel's tallest height in the story, reserved so nothing below it ever moves. */
+  --pad: 48px; --panel-w: 400px; --rail: 22px; --hang: 36px; --line-y: 219px; --demo-top: 40px; --slot: 644px;
+  color-scheme: dark;
+}
+@media (prefers-color-scheme: light) {
+  :root {
+    --bg: #f2f0f6; --title: #17121c; --secondary: #403849; --tertiary: #645b70;
+    --stroke: #6b6280; --rose: #c8235f; --rose-text: #8f103c; --focus: #403849;
+    color-scheme: light;
+  }
+}
+
+* { box-sizing: border-box; }
+html { -webkit-text-size-adjust: 100%; }
+body { margin: 0; background: var(--bg); color: var(--title);
+  font-family: "Inter", system-ui, -apple-system, "Segoe UI", sans-serif; font-size: 17px; line-height: 1.5;
+  -webkit-font-smoothing: antialiased; text-rendering: optimizeLegibility; }
+a { color: var(--title); text-decoration-color: var(--stroke); text-decoration-thickness: 1px; text-underline-offset: 3px; }
+a:hover { text-decoration-color: currentColor; }
+:focus-visible { outline: 2px solid var(--focus); outline-offset: 3px; border-radius: 4px; }
+p, h1, h2, dl, dd { margin: 0; }
+.display { font-variation-settings: "opsz" 32; font-weight: 560; letter-spacing: -0.03em; line-height: 1.08; text-wrap: balance; }
+.sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+
+.clip { overflow-x: clip; }
+.page { position: relative; max-width: 1280px; margin: 0 auto; padding: 0 var(--pad); }
+
+/* Header: the panel's wordmark, scaled. */
+.top { position: relative; z-index: 3; display: flex; align-items: center; justify-content: space-between; height: 76px; }
+.mark { display: inline-flex; align-items: baseline; gap: 8px; text-decoration: none; color: var(--title); }
+.mark .kanji { font-family: "Nagi Mark", serif; font-size: 28px; line-height: 1; }
+.mark .word { font-weight: 620; font-size: 18px; letter-spacing: .01em; }
+.toplink { font-size: 15px; color: var(--secondary); text-decoration: none; }
+.toplink:hover { color: var(--title); }
+
+/* Opening: the live panel on the left; limits question above its line, agents question below. */
+.opening { position: relative; display: grid; grid-template-columns: var(--panel-w) minmax(0, 1fr);
+  grid-template-rows: calc(var(--demo-top) + var(--line-y)) auto; column-gap: 88px; padding-top: 24px; }
+.panelwrap { grid-column: 1; grid-row: 1 / span 2; position: relative; align-self: start; min-height: calc(var(--demo-top) + var(--slot)); }
+.above, .below { grid-column: 2; position: relative; z-index: 3; max-width: 600px; }
+.above { grid-row: 1; display: flex; flex-direction: column; justify-content: space-between; padding: 6px 0 30px; }
+.below { grid-row: 2; padding-top: 30px; }
+.lede { font-size: 21px; line-height: 1.4; font-weight: 500; color: var(--secondary); max-width: 26em; text-wrap: balance; }
+.q h2 { font-size: 46px; max-width: 12em; }
+.q p { margin-top: 12px; color: var(--secondary); max-width: 31em; }
+
+/* The command shown is the command copied. It breaks only between its parts, never inside one. */
+.act { margin-top: 36px; }
+.cmdline { position: relative; }
+.cmd { display: block; font-family: var(--mono); font-size: 15px; line-height: 1.6; color: var(--title); }
+.cmd span { white-space: nowrap; }
+.opening .cmdline, .opening .actions { padding-left: 24px; }
+.opening .ask { position: absolute; left: 0; top: .5em; width: 10px; height: 10px; border-radius: 50%; background: var(--rose); }
+.actions { display: flex; flex-wrap: wrap; gap: 6px 22px; align-items: baseline; margin-top: 10px; font-size: 15px; }
+.actions a { color: var(--secondary); }
+.copy { font: inherit; font-weight: 620; color: var(--rose-text); background: none; border: 0; padding: 12px 10px; margin: -12px -10px; cursor: pointer; }
+.copy:hover { text-decoration: underline; text-underline-offset: 3px; }
+.fail { color: var(--secondary); }
+
+/* The live panel in its own window: the GTK panel's 12 px radius and soft shadow. */
+.demo { position: relative; padding-top: var(--demo-top); }
+.demo-controls { position: absolute; left: 0; right: 0; top: 0; height: var(--demo-top); margin: 0; display: flex; gap: 16px; align-items: center;
+  font-size: 13px; color: var(--secondary); white-space: nowrap; }
+.demo-controls span { margin-right: auto; }
+.demo-controls button { font: inherit; font-weight: 560; color: var(--title); background: none; border: 0; padding: 0; cursor: pointer;
+  text-decoration: underline; text-underline-offset: 3px; text-decoration-color: var(--stroke); padding: 12px 8px; margin: -12px -8px; }
+.demo-frame, .demo-still { position: relative; z-index: 2; display: block; width: 100%; border: 0; border-radius: 12px; background: var(--bg);
+  box-shadow: 0 0 0 .5px var(--stroke), 0 18px 48px rgb(0 0 0 / .32); }
+.demo-frame { height: 589px; color-scheme: normal; }
+.demo-still { height: auto; }
+@media (prefers-color-scheme: light) { .demo-frame, .demo-still { box-shadow: 0 0 0 .5px var(--stroke), 0 18px 48px rgb(40 30 60 / .16); } }
+
+/* The page line is the panel's now line, continued across the page at the same y. */
+.pageline { position: absolute; z-index: 1; left: -100vw; width: 300vw; top: calc(var(--demo-top) + var(--line-y) - 1px); height: 2px;
+  background: var(--rose); pointer-events: none; }
+
+/* The trunk leaves the panel's own rail at its last node; each section hangs from it on a branch. */
+.geo { position: absolute; left: 0; top: 0; width: 100%; height: 100%; overflow: visible; pointer-events: none; z-index: 2; }
+.geo path { fill: none; stroke: var(--stroke); stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+.geo .n { fill: var(--bg); stroke: var(--stroke); stroke-width: 2; }
+.geo .n-ask { fill: var(--rose); }
+
+main { position: relative; z-index: 1; }
+.branch { position: relative; max-width: calc(var(--rail) + var(--hang) + 680px); margin-top: 128px; padding-left: calc(var(--rail) + var(--hang)); }
+.opening + .branch { margin-top: 140px; }
+.branch h2 { font-size: 34px; }
+.branch > p { margin-top: 14px; color: var(--secondary); max-width: 36em; }
+.branch .fine { font-size: 15px; color: var(--tertiary); }
+.branch .act { margin-top: 22px; }
+
+/* Lists without rules: space carries the rows. */
+.legend { margin-top: 26px; display: grid; grid-template-columns: max-content 1fr; gap: 14px 36px; max-width: 640px; }
+.legend > div { display: contents; }
+.legend dt { font-weight: 650; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.legend dt .k { font-family: "Nagi Mark", serif; font-weight: 400; font-size: 19px; }
+.legend dd { color: var(--secondary); }
+.says { margin-top: 26px; display: grid; gap: 20px; max-width: 680px; }
+.says > div { display: grid; grid-template-columns: minmax(0, 17em) minmax(0, 1fr); column-gap: 28px; row-gap: 2px; }
+.says dt { grid-row: span 2; font-weight: 600; font-variant-numeric: tabular-nums; }
+.says dd { color: var(--secondary); }
+.says dd.not { color: var(--tertiary); font-size: 15px; }
+
+/* Quoted panel strings keep the panel's own parts: a value and its date in two columns, an alert over its sub-line. */
+.says dt .v, .says dt .d { display: block; }
+.says dt.cols { display: flex; flex-wrap: wrap; gap: 0 18px; }
+.says dt .d { font-weight: 420; color: var(--secondary); }
+.says dt.cols .d { font-weight: 600; color: var(--title); }
+
+/* Nothing of the demo shows before the panel's first draw: no empty frame, no control, no line. */
+.demo:not(.drawn) .demo-frame, .demo:not(.drawn) .demo-controls, .opening:not(.drawn) .pageline { visibility: hidden; }
+.geo .wait { visibility: hidden; }
+
+.foot { position: relative; z-index: 1; margin-top: 128px; padding: 0 0 56px calc(var(--rail) + var(--hang));
+  display: flex; flex-wrap: wrap; justify-content: space-between; gap: 8px 24px; font-size: 15px; color: var(--tertiary); }
+.foot a { color: var(--secondary); }
+
+/* Narrow windows and phones: the questions first, then the panel; the trunk still leaves its rail. */
+@media (max-width: 960px) {
+  :root { --pad: 16px; --hang: 32px; }
+  .top { height: 64px; }
+  .opening { display: block; padding-top: 12px; }
+  .above { display: block; padding: 0; }
+  .below { padding: 0; }
+  .lede { font-size: 18px; }
+  .q { margin-top: 24px; }
+  .q h2 { font-size: 32px; }
+  .q p { font-size: 16px; }
+  .panelwrap { margin-top: 28px; max-width: 520px; }
+  .branch { margin-top: 88px; }
+  .opening + .branch { margin-top: 56px; }
+  .branch h2 { font-size: 28px; }
+  .foot { margin-top: 88px; }
+  .legend { column-gap: 18px; }
+  .says > div { display: block; }
+  .says dd { margin-top: 2px; }
+}
+/* At phone width the whole URL can't sit beside "git clone" at 15 px, so each part takes a line. */
+@media (max-width: 560px) {
+  .cmd span { display: block; }
+  .cmd .url { white-space: normal; }
+  .cmd { font-size: 14px; }
+  /* Phones: the opening is lede, two questions, panel. The command lives at the Install node,
+     where the trunk ends, so it steps back to the gutter and fits at 360 px. */
+  .opening .act { display: none; }
+  .branch .act { margin-left: calc(-1 * (var(--rail) + var(--hang))); }
+}
+/* Narrow phones: the demo caption takes its own line, so Play and Replay always fit. */
+@media (max-width: 420px) {
+  :root { --demo-top: 64px; }
+  .demo-controls { flex-wrap: wrap; align-content: center; row-gap: 2px; white-space: normal; }
+  .demo-controls span { flex-basis: 100%; }
+}
+/* The panel's measured size at phone width, reserved so its first draw shifts nothing. */
+@media (max-width: 480px) {
+  :root { --slot: 664px; }
+  .demo-frame { height: 609px; }
+}
+/* Below 352 px the gutters would leave the panel under its 320 px minimum: it takes the full width. */
+@media (max-width: 351px) { .panelwrap { margin-left: calc(-1 * var(--pad)); margin-right: calc(-1 * var(--pad)); max-width: none; } .demo-controls { padding: 0 var(--pad); } }
+@media (max-width: 360px) { .q h2 { font-size: 30px; } }
+@media (max-width: 351px) { :root { --line-y: 240px; --slot: 685px; } .demo-frame { height: 630px; } }
+
+/* ---- PROTOTYPE: desktop v2, 1200 px and wider. Everything below this width is untouched. ---- */
+.kids { list-style: none; margin: 18px 0 0; padding: 0 0 0 22px; display: grid; gap: 10px; }
+.branch > .note { font-size: 15px; color: var(--tertiary); }
+.kids b { font-weight: 620; } .kids span { color: var(--secondary); }
+.geo .n-running { fill: var(--title); stroke: none; }
+.geo .n-ring { fill: var(--bg); stroke: var(--stroke); stroke-width: 2; }
+.geo .n-parent, .geo .n-pending { fill: var(--bg); stroke: var(--secondary); stroke-width: 1.75; }
+@media (min-width: 961px) {
+  /* One grid for the whole page: a 58 px rail gutter, then five columns with 32 px between them.
+     The copy column of the opening starts on column 3. */
+  main { display: grid; grid-template-columns: 26px repeat(5, minmax(0, 1fr)); column-gap: 32px; align-items: start;
+    grid-template-rows: auto auto 108px auto 92px auto; }
+  .opening { grid-column: 1 / -1; grid-row: 1; column-gap: max(88px, calc((100% - 186px) * 0.4 - 278px)); }
+  .branch, .opening + .branch { max-width: none; padding-left: 0; margin-top: 0; }
+  #tray { grid-column: 2 / span 5; grid-row: 2; margin-top: 48px; display: grid; grid-template-columns: subgrid; }
+  #tray h2 { grid-column: 1 / -1; }
+  #tray > p { grid-column: 1 / span 3; max-width: 34em; }
+  #tray > .note { grid-column: 4 / span 2; grid-row: 2; font-size: 15px; color: var(--tertiary); }
+  .legend { grid-row: 3; }
+  .legend { grid-column: 1 / -1; grid-template-columns: subgrid; max-width: none; margin-top: 30px; gap: 0 32px; }
+  .legend > div { display: block; }
+  .legend dt { font-size: 23px; line-height: 1.2; font-weight: 600; letter-spacing: -0.01em; }
+  .legend dt .k { font-size: 24px; }
+  .legend dd { margin-top: 8px; font-size: 16px; }
+  #privacy { grid-column: 5 / span 2; grid-row: 3 / span 2; margin-top: 52px; }
+  #honest { grid-column: 2 / span 3; grid-row: 4; }
+  #sources { grid-column: 5 / span 2; grid-row: 5 / span 2; margin-top: 36px; }
+  #install { grid-column: 2 / span 3; grid-row: 6; }
+  #privacy > p + p { margin-top: 10px; }
+  .says { max-width: none; margin-top: 22px; gap: 16px; }
+  .says > div { grid-template-columns: minmax(0, 16.5em) minmax(0, 1fr); }
+  #honest > p { margin-top: 18px; }
+  .kids li { font-size: 16px; }
+  #sources .fine { margin-top: 18px; }
+  #install > p { max-width: none; }
+  #install .act { margin-top: 18px; }
+  .foot { margin-top: 64px; padding-bottom: 40px; }
+}
+</style>
+</head>
+<body>
+<div class="clip">
+<div class="page" id="page">
+  <svg class="geo" id="geo" aria-hidden="true"></svg>
+
+  <header class="top">
+    <a class="mark" href="#"><span class="kanji" lang="ja">凪</span><span class="word">nagi</span></a>
+    <a class="toplink" href="https://github.com/yeqiuqiu123/nagi">Source on GitHub</a>
+  </header>
+
+  <main>
+    <div class="opening" id="opening">
+      <div class="above">
+        <h1 class="lede">A small glance in your menu bar for when you're running a lot of AI coding agents.</h1>
+        <div class="q">
+          <h2 class="display">Am I about to hit my limits?</h2>
+          <p>Every account, with what's left in each window and the date it resets, lowest first.</p>
+        </div>
+      </div>
+      <div class="below">
+        <div class="q">
+          <h2 class="display">What are my agents doing right now?</h2>
+          <p>Each agent by name, who started it, and how long it's been since it said anything.</p>
+        </div>
+        <div class="act">
+          <div class="cmdline"><span class="ask" aria-hidden="true"></span><code class="cmd" id="cmd-top"><span>git clone</span> <span class="url">https://github.com/<wbr>yeqiuqiu123/<wbr>nagi.git</span> <span>&amp;&amp; cd nagi &amp;&amp; ./install.sh</span></code></div>
+          <div class="actions"><button class="copy" type="button" data-copy="cmd-top" aria-describedby="cmd-label">Copy</button><span class="sr" id="cmd-label">the install command</span><span class="fail" role="status"></span></div>
+        </div>
+      </div>
+      <div class="panelwrap" id="panelwrap">
+        <div class="pageline" id="pageline" aria-hidden="true"></div>
+        <div class="demo" data-scene="story" data-start="#pageline" data-wake="#tray, #honest">
+          <p class="demo-controls"><span>The real panel, on demo data, sped up.</span> <button type="button" data-demo="toggle">Pause</button> <button type="button" data-demo="replay" hidden>Replay</button></p>
+          <iframe class="demo-frame" id="frame" title="The Nagi panel, running on demo data" data-src="../../../../site/panel/"></iframe>
+          <noscript>
+            <style>.demo-frame, .demo-controls { display: none; }</style>
+            <picture>
+              <source srcset="../../../../site/still-dark.webp" media="(prefers-color-scheme: dark)">
+              <img class="demo-still" src="../../../../site/still-light.webp" width="400" height="589" alt="The Nagi panel on demo data. Limits: Codex 1 is empty until next week; Claude 1 has its Session and Weekly windows with the percent left and reset dates; Codex 2 has most of its week left. 3 running. Under the project Tidepool, the completed agent Plan the offline sync release has two agents running under it: Resume photo uploads after a dropped connection, on Opus, and Resolve sync conflicts in the notes editor, on Sol. Under Kestrel API, Find why the rate limiter answers 429 too early, on Gemini, has been silent long enough to be marked stuck. 15 ended in the last day.">
+            </picture>
+          </noscript>
+        </div>
+      </div>
+    </div>
+
+    <section class="branch" data-node="running" id="tray" aria-labelledby="tray-h">
+      <h2 class="display" id="tray-h">When it's closed, it's just a number.</h2>
+      <p>The count in your menu bar or tray is how many agents are running. A mark after it says why you might look.</p>
+      <dl class="legend">
+        <div><dt><span class="k" lang="ja">凪</span> <span data-tray="calm">3</span></dt><dd>Agents are running and nothing needs you.</dd></div>
+        <div><dt><span class="k" lang="ja">凪</span> <span data-tray="asks">3 · ?</span></dt><dd>An agent is asking you something.</dd></div>
+        <div><dt><span class="k" lang="ja">凪</span> <span data-tray="stuck">3 · ●</span></dt><dd>An agent has been quiet for longer than you allow.</dd></div>
+        <div><dt><span class="k" lang="ja">凪</span> <span data-tray="empty">3 · empty</span></dt><dd>A limit window is used up.</dd></div>
+        <div><dt><span class="k" lang="ja">凪</span> <span data-tray="offline">–</span></dt><dd>Nagi can't reach an agent app right now.</dd></div>
+      </dl>
+      <p class="note">And one notification when a limit runs low: once for each window, when what's left drops to 10% or the level you set, until that window resets.</p>
+    </section>
+
+    <section class="branch" data-node="computer" id="privacy" aria-labelledby="privacy-h">
+      <h2 class="display" id="privacy-h">It stays on your computer.</h2>
+      <p>No cloud, no account, no telemetry. Nagi only reads, so it can't stop, send or approve anything.</p>
+      <p>Its reader listens only on 127.0.0.1 and answers only you. To watch another computer, it connects over your own Tailscale.</p>
+      <p>To check your limits, it uses your own sign-in and sends it only to that provider.</p>
+    </section>
+
+    <section class="branch" data-node="limit" id="honest" aria-labelledby="honest-h">
+      <h2 class="display" id="honest-h">It only says what it knows.</h2>
+      <dl class="says">
+        <div><dt><span class="v" data-say="tried">couldn't check · tried 17:31</span></dt><dd>When it can't read your limits.</dd><dd class="not">Instead of a 0.</dd></div>
+        <div><dt class="cols"><span class="v" data-say="reset-pct">64% left</span><span class="d" data-say="reset-date">Wed 18 Nov 19:31</span></dt><dd>Every window, with the date it resets.</dd><dd class="not">Instead of a countdown.</dd></div>
+        <div><dt class="stack"><span class="v" data-say="offline-alert">Can't reach T3 Code</span><span class="d" data-say="offline-sub">tried 17:31 · list from 17:28</span></dt><dd>The last list it read stays up, with the time.</dd><dd class="not">Instead of 0 running.</dd></div>
+      </dl>
+      <p>When it can't see, it says so.</p>
+    </section>
+
+    <section class="branch" data-node="parent" id="sources" aria-labelledby="sources-h">
+      <h2 class="display" id="sources-h">What it reads today.</h2>
+      <ul class="kids">
+        <li data-node="running"><b>T3 Code</b> <span>read-only, on this computer or on another over your Tailscale</span></li>
+        <li data-node="running"><b>Claude Code</b> <span>read directly on this computer</span></li>
+        <li data-node="running"><b>Codex</b> <span>read directly on this computer</span></li>
+        <li data-node="pending"><b>Cursor</b> <span>in beta</span></li>
+      </ul>
+      <p class="fine">Coming soon: OpenBot, Pi, oh-my-pi, Hermes, OpenClaw and OpenCode. Each needs only a small adapter. <a href="https://github.com/yeqiuqiu123/nagi/blob/main/CONTRIBUTING.md">Write an adapter</a></p>
+    </section>
+
+    <section class="branch is-ask" data-node="asks" id="install" aria-labelledby="install-h">
+      <h2 class="display" id="install-h">Install Nagi</h2>
+      <p>Linux or macOS, with Python 3.11 or newer. The installer keeps the data, owner key and connections you already have, and asks before it uses sudo.</p>
+      <div class="act">
+        <div class="cmdline"><code class="cmd" id="cmd-install"><span>git clone</span> <span class="url">https://github.com/<wbr>yeqiuqiu123/<wbr>nagi.git</span> <span>&amp;&amp; cd nagi &amp;&amp; ./install.sh</span></code></div>
+        <div class="actions"><button class="copy" type="button" data-copy="cmd-install" aria-describedby="cmd-label">Copy</button><span class="fail" role="status"></span></div>
+      </div>
+      <p>Then Nagi opens and walks you through connecting your agent apps, read-only.</p>
+      <p class="fine">On Linux it needs GTK 3, WebKitGTK 4.1 and an AppIndicator tray, and the installer tells you if one is missing. On a Mac it builds the menu-bar app with Swift from Xcode or the Command Line Tools.</p>
+    </section>
+  </main>
+
+  <footer class="foot">
+    <p><span lang="ja">凪</span> nagi means a calm sea.</p>
+    <p><a href="https://github.com/yeqiuqiu123/nagi">Source on GitHub</a> · <a href="https://github.com/yeqiuqiu123/nagi/blob/main/LICENSE">MIT licence</a></p>
+  </footer>
+</div>
+</div>
+<script src="../../../../site/js/panel-embed.js" defer></script>
+<script src="site.js" defer></script>
+</body>
+</html>

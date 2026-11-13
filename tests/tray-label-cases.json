@@ -1,0 +1,19 @@
+[
+  {"name": "calm", "agents": {"status": "ok", "counts": {"running": 3, "waitingOnYou": 0, "stuck": 0}}, "empty": false, "expect": "3"},
+  {"name": "stuck", "agents": {"status": "ok", "counts": {"running": 3, "waitingOnYou": 0, "stuck": 1}}, "empty": false, "expect": "3 · ●"},
+  {"name": "asks you", "agents": {"status": "ok", "counts": {"running": 3, "waitingOnYou": 1, "stuck": 0}}, "empty": false, "expect": "3 · ?"},
+  {"name": "asks you outranks stuck", "agents": {"status": "ok", "counts": {"running": 3, "waitingOnYou": 1, "stuck": 2}}, "empty": true, "expect": "3 · ?"},
+  {"name": "stuck outranks an empty window", "agents": {"status": "ok", "counts": {"running": 2, "waitingOnYou": 0, "stuck": 1}}, "empty": true, "expect": "2 · ●"},
+  {"name": "empty window", "agents": {"status": "ok", "counts": {"running": 3, "waitingOnYou": 0, "stuck": 0}}, "empty": true, "expect": "3 · empty"},
+  {"name": "a last-known 0 is not a live empty", "agents": {"status": "ok", "counts": {"running": 1, "waitingOnYou": 0, "stuck": 0}}, "empty": true, "limits": "last_known", "expect": "1"},
+  {"name": "one account's dated 0 is not a live empty", "agents": {"status": "ok", "counts": {"running": 1, "waitingOnYou": 0, "stuck": 0}}, "empty": true, "limits": "account_last_known", "expect": "1"},
+  {"name": "an expired 0 is not a live empty", "agents": {"status": "ok", "counts": {"running": 1, "waitingOnYou": 0, "stuck": 0}}, "empty": true, "limits": "expired", "expect": "1"},
+  {"name": "empty window, nothing running", "agents": {"status": "quiet", "counts": {"running": 0, "waitingOnYou": 0, "stuck": 0}}, "empty": true, "expect": "empty"},
+  {"name": "nothing running", "agents": {"status": "quiet", "counts": {"running": 0, "waitingOnYou": 0, "stuck": 0}}, "empty": false, "expect": ""},
+  {"name": "asks you with nothing running", "agents": {"status": "ok", "counts": {"running": 0, "waitingOnYou": 1, "stuck": 0}}, "empty": false, "expect": "?"},
+  {"name": "last known replaces the count", "agents": {"status": "last_known", "counts": {"running": 3, "waitingOnYou": 1, "stuck": 1}}, "empty": true, "expect": "–"},
+  {"name": "never reached", "agents": {"status": "unavailable", "reason": "cannot_reach_t3"}, "empty": true, "expect": "–"},
+  {"name": "not set up is not a failure", "agents": {"status": "not_set_up", "reason": "not_configured"}, "empty": false, "expect": "·"},
+  {"name": "unsupported", "agents": {"status": "unsupported", "reason": "protocol_unsupported"}, "empty": false, "expect": "–"},
+  {"name": "first check", "agents": {"status": "unavailable", "reason": "checking"}, "empty": true, "expect": ""}
+]

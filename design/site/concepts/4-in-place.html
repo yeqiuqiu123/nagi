@@ -1,0 +1,66 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="color-scheme" content="dark light">
+<title>Concept 4 · In Place</title>
+<link rel="stylesheet" href="shared.css">
+<style>
+  .desk { position: relative; min-height: 100vh; }
+  .tray { position: absolute; top: 14px; right: 40px; display: flex; flex-direction: column; align-items: flex-end; }
+  .item { font: inherit; display: inline-flex; align-items: center; gap: 6px; height: 26px; padding: 0 10px; border: 0; border-radius: 13px; background: var(--hover); color: var(--title); font-weight: 650; font-size: 14px; cursor: pointer; font-variant-numeric: tabular-nums; }
+  .item .k { font-family: "Nagi Mark", serif; font-size: 16px; font-weight: 400; }
+  .hang { margin-top: 4px; }
+  .demo-frame { border-radius: 12px; box-shadow: 0 0 0 .5px var(--stroke), 0 18px 48px rgb(0 0 0 / .38); }
+  .here { position: absolute; top: 20px; right: 150px; font-size: 15px; color: var(--secondary); }
+  .copy { position: absolute; left: 48px; bottom: 48px; max-width: 520px; }
+  .copy h1 { font-size: 44px; }
+  .copy p { color: var(--secondary); margin: 14px 0 0; }
+  .legend { list-style: none; padding: 0; margin: 22px 0 0; font-size: 15px; }
+  .legend li { display: grid; grid-template-columns: 110px 1fr; padding: 6px 0; border-top: 1px solid var(--hair); }
+  .legend b { font-weight: 650; font-variant-numeric: tabular-nums; }
+  .more { max-width: 640px; margin: 0 48px; padding: 72px 0; }
+  .more h2 { font-size: 30px; } .more p { color: var(--secondary); }
+  .cmd { color: var(--title); }
+  @media (max-width: 900px) {
+    .desk { min-height: 0; padding: 16px; }
+    .tray { position: static; align-items: stretch; }
+    .item { align-self: flex-end; }
+    .here { position: static; text-align: right; margin: 6px 0; }
+    .copy { position: static; margin-top: 32px; }
+    .copy h1 { font-size: 34px; }
+    .more { margin: 0 16px; }
+    .cmd { word-break: break-all; }
+  }
+</style>
+</head>
+<body>
+<main>
+  <div class="desk">
+    <span class="here">It lives up here.</span>
+    <div class="tray">
+      <button class="item" id="item" type="button" aria-expanded="true" aria-controls="hang"><span class="k" lang="ja">凪</span><span id="label">3 · ●</span></button>
+      <div class="hang" id="hang"><div class="demo" data-scene="stuck"><iframe class="demo-frame" title="The Nagi panel running on demo data" data-src="../../../site/panel/"></iframe></div></div>
+    </div>
+    <div class="copy">
+      <h1 class="display">A number in your menu bar, and the panel behind it.</h1>
+      <p>The count is your running agents. A mark after it tells you why to look.</p>
+      <ul class="legend">
+        <li><b>凪 3</b><span>Three agents running, all fine.</span></li>
+        <li><b>凪 3 · ?</b><span>One is asking you something.</span></li>
+        <li><b>凪 3 · ●</b><span>One has been silent past your stuck time.</span></li>
+        <li><b>凪 3 · empty</b><span>A limit window is used up.</span></li>
+      </ul>
+    </div>
+  </div>
+  <section class="more"><h2 class="display">It stays on your computer.</h2><p>No cloud, no account, no telemetry. A read-only reader on 127.0.0.1; other computers only over your own Tailscale.</p>
+    <h2 class="display" style="margin-top:48px">Install</h2><p><code class="cmd">git clone https://github.com/yeqiuqiu123/nagi.git &amp;&amp; cd nagi &amp;&amp; ./install.sh</code></p></section>
+</main>
+<script src="../../../site/js/panel-embed.js"></script>
+<script>
+  const item = document.getElementById('item'); const hang = document.getElementById('hang');
+  item.addEventListener('click', () => { hang.hidden = !hang.hidden; item.setAttribute('aria-expanded', String(!hang.hidden)); });
+</script>
+</body>
+</html>

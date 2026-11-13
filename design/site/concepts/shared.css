@@ -1,0 +1,37 @@
+/* Shared by the five concept prototypes: the panel's tokens verbatim (web/glance-v2.css), Inter, the mark. */
+@font-face { font-family: "Inter"; src: url("../../../site/panel/fonts/inter-opsz.woff2") format("woff2"); font-weight: 100 900; font-display: swap; }
+@font-face { font-family: "Nagi Mark"; src: url("../../../site/panel/fonts/nagi-glyph-serif.woff2") format("woff2"); font-display: block; }
+:root {
+  --bg: #18131d; --sheet: #241d2b; --title: #f5f1f8; --secondary: #cdc4d6; --tertiary: #a397b0;
+  --stroke: #9486a3; --hair: #3a3142; --rose: #ff7aa5; --rose-text: #ff9dbb; --amber: #e6c84a; --amber-text: #ecd27a;
+  --hover: #211a27; --control: #2c2433; --focus: #cdc4d6;
+  --pv-claude: #e2977f; --pv-codex: #13c197; --pv-gemini: #7caaf7;
+  --display: 560; --mono: ui-monospace, "SF Mono", "JetBrains Mono", "Cascadia Mono", Menlo, monospace;
+  color-scheme: dark;
+}
+@media (prefers-color-scheme: light) {
+  :root {
+    --bg: #f2f0f6; --sheet: #fbfafd; --title: #17121c; --secondary: #403849; --tertiary: #645b70;
+    --stroke: #6b6280; --hair: #dcd7e4; --rose: #c8235f; --rose-text: #8f103c; --amber: #7d6800; --amber-text: #594a00;
+    --hover: #e8e5ee; --control: #ffffff; --focus: #403849;
+    --pv-claude: #7b331c; --pv-codex: #085240; --pv-gemini: #0943a3;
+    color-scheme: light;
+  }
+}
+* { box-sizing: border-box; }
+html { -webkit-text-size-adjust: 100%; }
+body { margin: 0; overflow-x: clip; background: var(--bg); color: var(--title); font-family: "Inter", system-ui, sans-serif; font-size: 17px; line-height: 1.5;
+  -webkit-font-smoothing: antialiased; text-rendering: optimizeLegibility; }
+a { color: inherit; }
+:focus-visible { outline: 2px solid var(--focus); outline-offset: 3px; border-radius: 4px; }
+.mark { display: inline-flex; align-items: baseline; gap: 7px; text-decoration: none; }
+.mark .kanji { font-family: "Nagi Mark", serif; font-size: 26px; line-height: 1; }
+.mark .word { font-weight: 620; font-size: 17px; letter-spacing: .01em; }
+.display { font-variation-settings: "opsz" 32; font-weight: 560; letter-spacing: -0.03em; line-height: 1.08; margin: 0; text-wrap: balance; }
+.secondary { color: var(--secondary); }
+.tertiary { color: var(--tertiary); }
+code, .cmd { font-family: var(--mono); font-size: 15px; }
+.demo-frame { display: block; width: 400px; max-width: 100%; height: 640px; border: 0; background: var(--bg); color-scheme: normal; }
+.demo-controls { display: flex; gap: 14px; align-items: baseline; font-size: 13px; color: var(--secondary); margin-top: 10px; }
+.demo-controls button { font: inherit; color: var(--title); background: none; border: 0; padding: 0; text-decoration: underline; text-underline-offset: 3px; text-decoration-color: var(--stroke); cursor: pointer; }
+.sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }

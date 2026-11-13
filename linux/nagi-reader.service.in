@@ -1,0 +1,16 @@
+[Unit]
+Description=Nagi private local reader
+After=default.target
+
+[Service]
+Type=simple
+ExecStart=@COMMAND@
+Environment=@DATA_ENV@
+Environment=@PATH_ENV@
+Restart=on-failure
+RestartSec=5
+UMask=0077
+NoNewPrivileges=true
+
+[Install]
+WantedBy=default.target

@@ -1,0 +1,5 @@
+concepts/shots/
+slice/
+# Report for the owner only; it names private locations, so it stays out of a public repo.
+open-source-audit.md
+concepts/desktop-v2/shots/

@@ -1,0 +1,66 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="color-scheme" content="dark light">
+<title>Concept 2 · Two Seconds</title>
+<link rel="stylesheet" href="shared.css">
+<style>
+  .page { max-width: 1200px; margin: 0 auto; padding: 0 48px 96px; }
+  header { display: flex; align-items: center; justify-content: space-between; height: 72px; }
+  header a.gh { font-size: 15px; color: var(--secondary); text-decoration: none; }
+  .grid { display: grid; grid-template-columns: minmax(0, 1fr) 400px; gap: 96px; }
+  .stick { position: sticky; top: 40px; align-self: start; }
+  .demo-frame { border-radius: 12px; box-shadow: 0 0 0 .5px var(--stroke), 0 18px 48px rgb(0 0 0 / .38); }
+  h1.display { font-size: 64px; margin-top: 64px; }
+  .intro { color: var(--secondary); font-size: 20px; max-width: 26em; margin: 18px 0 0; }
+  .cap { min-height: 72vh; display: flex; flex-direction: column; justify-content: center; }
+  .cap .n { font-size: 13px; color: var(--tertiary); font-variant-numeric: tabular-nums; }
+  .cap h2 { font-size: 30px; margin-top: 6px; }
+  .cap p { color: var(--secondary); max-width: 30em; margin: 12px 0 0; }
+  .cap q { quotes: none; color: var(--title); font-weight: 560; }
+  .cap q.asks { color: var(--rose-text); } .cap q.stuck { color: var(--amber-text); }
+  .act { margin-top: 28px; display: flex; gap: 18px; align-items: baseline; flex-wrap: wrap; }
+  .cmd { color: var(--title); }
+  .act a { color: var(--secondary); font-size: 15px; }
+  @media (max-width: 900px) {
+    .page { padding: 0 16px 72px; }
+    .grid { grid-template-columns: 1fr; gap: 24px; }
+    .stick { position: static; order: -1; }
+    h1.display { font-size: 40px; margin-top: 24px; }
+    .cap { min-height: 0; padding: 32px 0; border-top: 1px solid var(--hair); }
+    .cmd { word-break: break-all; }
+  }
+</style>
+</head>
+<body>
+<div class="page">
+  <header><a class="mark" href="#"><span class="kanji" lang="ja">凪</span><span class="word">nagi</span></a><a class="gh" href="https://github.com/yeqiuqiu123/nagi">GitHub</a></header>
+  <div class="grid">
+    <div>
+      <h1 class="display">Two questions. Two seconds.</h1>
+      <p class="intro">What are my agents doing right now? Am I about to hit my limits? Nagi answers both from your menu bar or tray.</p>
+      <div class="cap" data-scene="story"><span class="n">1 / 6</span><h2 class="display">Every agent, by name.</h2><p>Each running agent hangs from the agent that started it, with its model, how long it has run and when it last spoke.</p></div>
+      <div class="cap" data-scene="asks"><span class="n">2 / 6</span><h2 class="display">One is asking you something.</h2><p>Its dot turns rose and the line above says <q class="asks">1 asks you</q>. Nothing else on the panel is rose except now.</p></div>
+      <div class="cap" data-scene="stuck"><span class="n">3 / 6</span><h2 class="display">One has gone quiet.</h2><p>A line grows under it while it's silent. Past halfway it turns yellow; at 15 minutes it reads <q class="stuck">silent 15 m</q> and you get one notification.</p></div>
+      <div class="cap" data-scene="limits"><span class="n">4 / 6</span><h2 class="display">Limits, one line per account.</h2><p>The lowest window first, the % left and the reset date. If a check fails it says <q>couldn't check · tried 17:31</q>, never 0%.</p></div>
+      <div class="cap" data-scene="offline"><span class="n">5 / 6</span><h2 class="display">When it can't see, it says so.</h2><p>If T3 Code stops answering, the count greys, the last list stays with its time, and no alarm fires on old news.</p></div>
+      <div class="cap" data-scene="quiet"><span class="n">6 / 6</span><h2 class="display">Nothing running.</h2><p>It says when the last one ended. Everything stays on your computer: no cloud, no account, no telemetry.</p>
+        <div class="act"><code class="cmd">git clone https://github.com/yeqiuqiu123/nagi.git &amp;&amp; cd nagi &amp;&amp; ./install.sh</code><a href="https://github.com/yeqiuqiu123/nagi">Source on GitHub</a></div></div>
+    </div>
+    <div class="stick">
+      <div class="demo" data-scene="still"><iframe class="demo-frame" id="frame" title="The Nagi panel running on demo data" data-src="../../../site/panel/"></iframe>
+        <div class="demo-controls"><span>Demo data.</span></div></div>
+    </div>
+  </div>
+</div>
+<script src="../../../site/js/panel-embed.js"></script>
+<script>
+  // Each caption cuts the panel to its scene on the next frame, as the product changes state.
+  const frame = document.getElementById('frame');
+  const io = new IntersectionObserver((es) => es.forEach((e) => { if (e.isIntersecting) { try { frame.contentWindow.NagiDemo.setScene(e.target.dataset.scene === 'story' ? 'still' : e.target.dataset.scene); } catch {} } }), { rootMargin: '-45% 0px -45% 0px' });
+  document.querySelectorAll('.cap').forEach((c) => io.observe(c));
+</script>
+</body>
+</html>
