@@ -53,5 +53,21 @@
     return box;
   }
 
-  window.NagiIcons = Object.freeze({ monogram, lucide, emoji, image, has: (name) => Object.prototype.hasOwnProperty.call(LUCIDE, name) });
+  // State glyphs for an empty list and the source rail (lucide 1.72.0, ISC): calm water for
+  // nothing running, an hourglass for not yet, a plug for not connected, a pulled plug for
+  // can't reach, a question for can't tell. Drawn at the panel's 1.75 stroke.
+  const GLYPHS = {
+    waves: [['path', { d: 'M2 12q2.5 2 5 0t5 0 5 0 5 0' }], ['path', { d: 'M2 19q2.5 2 5 0t5 0 5 0 5 0' }], ['path', { d: 'M2 5q2.5 2 5 0t5 0 5 0 5 0' }]],
+    hourglass: [['path', { d: 'M5 22h14' }], ['path', { d: 'M5 2h14' }], ['path', { d: 'M17 22v-4.172a2 2 0 0 0-.586-1.414L12 12l-4.414 4.414A2 2 0 0 0 7 17.828V22' }], ['path', { d: 'M7 2v4.172a2 2 0 0 0 .586 1.414L12 12l4.414-4.414A2 2 0 0 0 17 6.172V2' }]],
+    plug: [['path', { d: 'M12 22v-5' }], ['path', { d: 'M15 8V2' }], ['path', { d: 'M17 8a1 1 0 0 1 1 1v4a4 4 0 0 1-4 4h-4a4 4 0 0 1-4-4V9a1 1 0 0 1 1-1z' }], ['path', { d: 'M9 8V2' }]],
+    unplug: [['path', { d: 'm19 5 3-3' }], ['path', { d: 'm2 22 3-3' }], ['path', { d: 'M6.3 20.3a2.4 2.4 0 0 0 3.4 0L12 18l-6-6-2.3 2.3a2.4 2.4 0 0 0 0 3.4Z' }], ['path', { d: 'M7.5 13.5 10 11' }], ['path', { d: 'M10.5 16.5 13 14' }], ['path', { d: 'm12 6 6 6 2.3-2.3a2.4 2.4 0 0 0 0-3.4l-2.6-2.6a2.4 2.4 0 0 0-3.4 0Z' }]],
+    question: [['circle', { cx: '12', cy: '12', r: '10' }], ['path', { d: 'M9 9.5a3 2.5 0 016 0c0 2-2 2-3 3.5' }], ['path', { d: 'M12 17h.01' }]],
+  };
+  function glyph(name) {
+    const icon = svg('svg', { class: 'glyph', viewBox: '0 0 24 24', fill: 'none', stroke: 'currentColor', 'stroke-width': '1.75', 'stroke-linecap': 'round', 'stroke-linejoin': 'round', 'aria-hidden': 'true' });
+    for (const [tag, attrs] of GLYPHS[name] || GLYPHS.question) icon.append(svg(tag, attrs));
+    return icon;
+  }
+
+  window.NagiIcons = Object.freeze({ monogram, lucide, emoji, image, glyph, has: (name) => Object.prototype.hasOwnProperty.call(LUCIDE, name) });
 })();
