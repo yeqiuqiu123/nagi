@@ -264,6 +264,7 @@ test('retained quota is dated, expired windows vanish, and omissions never claim
   // One account's own last-known state is dated by its own check, beside a fresh account.
   const partial = limits();
   Object.assign(partial.providers.codex.data.accounts[1], { status: 'last_known', checkedAt: at(40), reason: 'probe_failed' });
+  partial.providers.codex.data.accounts[1].windows.forEach((w) => { w.checkedAt = at(40); });
   const pv = M.build(glance([], { status: 'quiet' }), partial, { now: NOW });
   assert.equal(pv.limits.find((l) => l.name === 'Codex 2').stamp, 'as of 05:25');
   assert.equal(pv.limits.find((l) => l.name === 'Codex 1').stamp, '');
@@ -640,4 +641,25 @@ test('review round 2: an exact reset picks its account, evidence keeps the minut
     ok([{ id: 'b', label: 'Codex 1', checkedAt: at(3), windows: [w(51, 3, 50000)] }]),
     ok([{ id: 'c', label: 'Codex 1', checkedAt: at(1), windows: [w(52, 1, 100000)] }])));
   assert.equal(drift.length, 2);
+});
+
+test('review round 3: merge order never hides an account, and a lone stale source has no fresh Ended total', () => {
+  const tag = (id) => ({ id, harness: 't3', label: id, placement: 'local' });
+  const quiet = glance([], { status: 'quiet' }).agents;
+  const w = (left, offsetMs) => ({ id: 'w', label: 'Weekly', kind: 'weekly', remainingPercent: left,
+    resetsAt: new Date(NOW + 40 * 3600000 + (offsetMs || 0)).toISOString(), checkedAt: at(1) });
+  const ok = (accounts) => ({ status: 'ok', attemptedAt: at(0), checkedAt: at(1), reason: null, warnings: [], data: { accounts } });
+  const one = ok([{ id: 'x', label: 'Codex', checkedAt: at(1), windows: [w(68, 6000)] }]);
+  const two = ok([{ id: 'a', label: 'Codex 1', checkedAt: at(1), windows: [w(0)] }, { id: 'b', label: 'Codex 2', checkedAt: at(1), windows: [w(70, 6000)] }]);
+  for (const order of [[one, two], [two, one]]) {
+    const dials = M.buildSources({ version: 1, platform: 'linux', settings: {}, warnings: [], sources: order.map((c, i) => (
+      { source: tag('s' + i), agents: quiet, limits: { codex: c }, coverage: {}, warnings: [] })) }, { now: NOW }).vm.dials.filter((d) => d.provider === 'codex');
+    assert.ok(dials.some((d) => d.cells.some((c) => c.pct === 0)), 'the empty account is still shown');
+    assert.equal(dials.length, 2);
+  }
+  const stale = glance([], { status: 'last_known', counts: { ended: 1 }, ended: [{ id: 'p', title: 'Alpha', agents: [agent('Done', 'completed', { ended: 50 })] }] });
+  const single = M.buildSources({ version: 1, platform: 'linux', settings: {}, warnings: [], sources: [
+    { source: tag('s0'), agents: stale.agents, limits: {}, coverage: {}, warnings: [] }] }, { now: NOW }).vm;
+  assert.ok(single.endedAll, 'the stale source keeps its Ended line');
+  assert.deepEqual([single.endedAll.count, single.endedAll.more], [null, '+1 dated']);
 });

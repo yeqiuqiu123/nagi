@@ -233,6 +233,9 @@ def run(port=47831, *, preview=False):
         def toggle(*_):
             if window.get_visible():
                 hide()
+                # The grace is for a click that arrives after focus loss already closed the
+                # panel; a click that closes it itself leaves the next click free to reopen.
+                state['hidden_at'] = 0
             elif GLib.get_monotonic_time() - state['hidden_at'] > TOGGLE_GRACE_US:
                 show()
 
@@ -344,16 +347,20 @@ def run(port=47831, *, preview=False):
         menu.show_all()
         tray = {'icon': None, 'indicator': None, 'title': 'Nagi'}
 
-        def use_indicator():
-            # Middle click toggles the panel. GNOME's AppIndicator extension opens this menu on a
-            # left click (it ignores ItemIsMenu), so `Open Nagi` is the menu's first item.
-            indicator = AyatanaAppIndicator3.Indicator.new_with_path('nagi-preview' if preview else 'company-desk', 'nagi-symbolic',
-                AyatanaAppIndicator3.IndicatorCategory.APPLICATION_STATUS, ICON_DIR)
-            indicator.set_title(tray['title'])
-            indicator.set_status(AyatanaAppIndicator3.IndicatorStatus.ACTIVE)
-            indicator.set_menu(menu)
-            indicator.set_secondary_activate_target(items[0])
-            tray['indicator'] = indicator
+        def indicator_shown(on):
+            # Created once, then only shown or hidden, so there is never a second item.
+            if tray['indicator'] is None:
+                if not on:
+                    return
+                # Middle click toggles the panel. GNOME's AppIndicator extension opens this menu
+                # on a left click (it ignores ItemIsMenu), so `Open Nagi` is its first item.
+                indicator = AyatanaAppIndicator3.Indicator.new_with_path('nagi-preview' if preview else 'company-desk', 'nagi-symbolic',
+                    AyatanaAppIndicator3.IndicatorCategory.APPLICATION_STATUS, ICON_DIR)
+                indicator.set_title(tray['title'])
+                indicator.set_menu(menu)
+                indicator.set_secondary_activate_target(items[0])
+                tray['indicator'] = indicator
+            tray['indicator'].set_status(AyatanaAppIndicator3.IndicatorStatus.ACTIVE if on else AyatanaAppIndicator3.IndicatorStatus.PASSIVE)
 
         def glyph(size):
             loader = GdkPixbuf.PixbufLoader.new_with_type('svg')
@@ -365,31 +372,42 @@ def run(port=47831, *, preview=False):
         def use_tray_icon():
             # A left click opens or closes the panel at once; a right click shows the menu.
             # Gtk.StatusIcon is deprecated in GTK 3 but is the only click-through tray item here.
+            try:
+                first = glyph(22)
+            except (GLib.Error, OSError, ValueError):
+                return False
             warnings.filterwarnings('ignore', message=r'Gtk\.StatusIcon', category=DeprecationWarning)
             icon = Gtk.StatusIcon()
             icon.set_name('nagi-preview' if preview else 'nagi')
             icon.set_title('Nagi')
             icon.set_tooltip_text(tray['title'])
-            icon.set_from_pixbuf(glyph(22))
+            icon.set_from_pixbuf(first)
+
+            def resized(i, size):
+                try:
+                    i.set_from_pixbuf(glyph(max(16, size)))
+                except (GLib.Error, OSError, ValueError):
+                    pass  # keep the glyph it has
+                return True
             icon.connect('activate', toggle)
             icon.connect('popup-menu', lambda i, button, when: menu.popup(None, None, Gtk.StatusIcon.position_menu, i, button, when))
-            icon.connect('size-changed', lambda i, size: (i.set_from_pixbuf(glyph(max(16, size))), True)[1])
-            icon.set_visible(True)
+            icon.connect('size-changed', resized)
             tray['icon'] = icon
 
-            def embedded():
-                # No tray host took it (another desktop, or the legacy tray is off): use the indicator.
-                if not icon.is_embedded():
-                    icon.set_visible(False)
-                    tray['icon'] = None
-                    use_indicator()
+            # The indicator stands in whenever no tray host holds the icon: at start after a short
+            # wait, and later if the host goes away; it steps back when a host takes the icon.
+            def settle():
+                tray['wait'] = None
+                indicator_shown(not icon.is_embedded())
                 return False
-            GLib.timeout_add(EMBED_WAIT_MS, embedded)
+            icon.connect('notify::embedded', lambda *_: tray['wait'] is None and indicator_shown(not icon.is_embedded()))
+            icon.set_visible(True)
+            tray['wait'] = GLib.timeout_add(EMBED_WAIT_MS, settle)
+            return True
 
-        if wants_tray_icon(Gdk.Display.get_default()):
-            use_tray_icon()
-        else:
-            use_indicator()
+        tray['wait'] = None
+        if not (wants_tray_icon(Gdk.Display.get_default()) and use_tray_icon()):
+            indicator_shown(True)
 
         def set_tray_title(text):
             # The owner wants the glyph alone in the bar; the summary lives in the tooltip.
@@ -455,6 +473,8 @@ def run(port=47831, *, preview=False):
         if notifier is not None:
             from agent_notifications import stop_notifier
             stop_notifier(GLib,notifier)
+        if tray['wait'] is not None:
+            GLib.source_remove(tray['wait'])
         if tray['indicator'] is not None:
             tray['indicator'].set_status(AyatanaAppIndicator3.IndicatorStatus.PASSIVE)
         if tray['icon'] is not None:

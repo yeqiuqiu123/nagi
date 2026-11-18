@@ -239,9 +239,10 @@
           const words = (w) => (isEmpty(w) ? 'empty until ' : w.left + '% left, resets ') + longDate(w.resets);
           // The dial: what's left, how much of the window's time is left, and whether the value
           // is fresh. A window at or under the alert level is low; a dated value is never low.
+          const asOfW = (w) => (ctx.limitsDownAt == null ? readOf(w) : '');
           const line = (w, name, sub) => ({ name, pct: w.left, empty: isEmpty(w), sub,
-            date: until(w), stamp: asOf && wins.length === 1 ? asOf : '', label: (sub ? acc.label + ' ' : '') + name + ': ' + words(w) + (asOf ? ', ' + asOf : ''),
-            window: w.label, resets: w.resets, checked, wchecked: w.checked || checked, tried: triedOf(w), readAt: readOf(w), when: whenShort(w.resets, ctx.now), timeLeft: timeLeft(w.kind, w.resets, ctx.now), dated: !fresh, asOf,
+            date: until(w), stamp: asOfW(w) && wins.length === 1 ? asOfW(w) : '', label: (sub ? acc.label + ' ' : '') + name + ': ' + words(w) + (asOfW(w) ? ', ' + asOfW(w) : ''),
+            window: w.label, resets: w.resets, checked, wchecked: w.checked || checked, tried: triedOf(w), readAt: readOf(w), when: whenShort(w.resets, ctx.now), timeLeft: timeLeft(w.kind, w.resets, ctx.now), dated: !fresh, asOf: asOfW(w),
             // Low compares the raw reading, as the alert does; only the shown number is rounded.
             low: fresh && w.left > 0 && w.raw <= ctx.alertAt });
           const about = { provider: key, state: 'value', checked: fresh ? checked : null };
@@ -249,8 +250,10 @@
             valued.push({ ...line(wins[0], acc.label, false), lowest: wins[0].left, subs: [], ...about });
           } else {
             // Several windows: the account heads its own lines, lowest window first.
-            valued.push({ ...about, name: acc.label, pct: null, head: true, empty: isEmpty(wins[0]), lowest: wins[0].left, date: '', stamp: asOf,
-              label: acc.label + ', ' + wins.length + ' windows, lowest first' + (asOf ? ', ' + asOf : ''),
+            // One group time only when every window was read at the same time; else each says its own.
+            const one = new Set(wins.map(asOfW)).size === 1 ? asOfW(wins[0]) : '';
+            valued.push({ ...about, name: acc.label, pct: null, head: true, empty: isEmpty(wins[0]), lowest: wins[0].left, date: '', stamp: one,
+              label: acc.label + ', ' + wins.length + ' windows, lowest first' + (one ? ', ' + one : ''),
               subs: wins.map((w) => line(w, w.label, true)) });
           }
         }
@@ -339,17 +342,31 @@
       const exact = near.filter((n) => n.exact);
       return near.length === 1 ? near[0] : exact.length === 1 ? exact[0] : null;
     };
-    for (const g of groups) {
-      let into = null; let places = [];
-      if (g.rank === 0) {
-        places = g.cells.map((c) => ({ c, at: home(c, g) }));
-        const targets = [...new Set(places.filter((p) => p.at).map((p) => p.at.m))];
-        // Every window must agree on one account: matched there, or a window it doesn't have.
-        if (targets.length === 1 && places.every((p) => (p.at ? p.at.m === targets[0] : !targets[0].cells.some((x) => x.full === p.c.full)))) into = targets[0];
-      } else {
-        into = merged.find((m) => m.provider === g.provider && m.rank === g.rank && !shares(m, g)
-          && m.name === g.name && m.cells[0].w === g.cells[0].w && m.cells[0].d === g.cells[0].d) || null;
+    // Where one group would go, without committing: its target and whether every match is exact.
+    const plan = (g) => {
+      if (g.rank !== 0) {
+        const m = merged.find((x) => x.provider === g.provider && x.rank === g.rank && !shares(x, g)
+          && x.name === g.name && x.cells[0].w === g.cells[0].w && x.cells[0].d === g.cells[0].d);
+        return m ? { g, into: m, places: [], exact: true } : { g, into: null, places: [] };
       }
+      const places = g.cells.map((c) => ({ c, at: home(c, g) }));
+      const targets = [...new Set(places.filter((p) => p.at).map((p) => p.at.m))];
+      // Every window must agree on one account: matched there, or a window it doesn't have.
+      const ok = targets.length === 1 && places.every((p) => (p.at ? p.at.m === targets[0] : !targets[0].cells.some((x) => x.full === p.c.full)));
+      return { g, into: ok ? targets[0] : null, places, exact: ok && places.every((p) => !p.at || p.at.exact) };
+    };
+    // Each source's groups are placed together: an account already merged takes at most one of
+    // them, the one with an exact reset match; if none or several are exact, they all stay apart.
+    const batches = [];
+    groups.forEach((g) => { const b = batches.find((x) => x.origin === g.from[0]); if (b) b.groups.push(g); else batches.push({ origin: g.from[0], groups: [g] }); });
+    for (const batch of batches) {
+      const plans = batch.groups.map(plan);
+      for (const p of plans) {
+        if (!p.into) continue;
+        const rivals = plans.filter((q) => q.into === p.into);
+        if (rivals.length > 1 && !(p.exact && rivals.filter((q) => q.exact).length === 1)) p.into = null;
+      }
+      for (const { g, into, places } of plans) {
       if (!into) { merged.push(g); continue; }
       into.from.push(...g.from);
       g.sources.forEach((t) => { if (!into.sources.some((x) => x.id === t.id)) into.sources.push(t); });
@@ -362,6 +379,7 @@
       into.lowest = Math.min(into.lowest, g.lowest);
       if (g.checked != null && (into.checked == null || g.checked > into.checked)) into.checked = g.checked;
       finishDial(into);
+      }
     }
     return merged.sort((x, y) => (x.rank - y.rank) || (x.lowest - y.lowest));
   }
@@ -675,7 +693,7 @@
     // One Ended line. Its count sums each source's own count, leaving out a count that may
     // repeat another source's; every group stays tagged with the source that read it.
     let ended = null;
-    const withEnded = items.map((i, n) => ({ e: i.vm.ended, tag: many ? tags[n] : null, aside: extra && extra.maybeTwice ? extra.maybeTwice(i.s) : false, dated: many && i.vm.mode !== 'live' })).filter((x) => x.e);
+    const withEnded = items.map((i, n) => ({ e: i.vm.ended, tag: many ? tags[n] : null, aside: extra && extra.maybeTwice ? extra.maybeTwice(i.s) : false, dated: i.vm.mode !== 'live' })).filter((x) => x.e);
     if (withEnded.length) {
       // The headline counts fresh, source-local threads only. A count that may repeat another
       // source's, or that comes from a source not read now, is named beside it, never added.
