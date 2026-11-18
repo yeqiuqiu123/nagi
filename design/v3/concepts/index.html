@@ -1,0 +1,204 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Nagi v3 · five concepts</title>
+<link rel="stylesheet" href="board.css">
+<script src="board.js" defer></script>
+</head>
+<body>
+<main class="board">
+  <h1>Nagi v3: five concepts</h1>
+  <p>The same evening on every board, with invented projects and accounts: three agents running under two projects, one of them asking a question; Codex 1 empty until Monday; Claude 1 with three windows; one Codex read that failed at 18:35; three connected sources. Each panel is 400 px wide, night and day. The concepts differ in what they draw and how you use them, not in colour.</p>
+  <p>Ranking and the pick: <a href="../selection.md">selection.md</a>. Direction: <a href="../creative-direction.md">creative-direction.md</a>.</p>
+
+  <!-- 1 ------------------------------------------------------------------------------------ -->
+  <section class="concept" data-c="c1" id="soundings">
+    <div>
+      <h2>1. Soundings <span class="rank">· ranked 1, chosen</span></h2>
+      <p>A band of dials, then a watch list with a status column.</p>
+      <dl>
+        <dt>Idea</dt><dd>Every limit window is a ring: the arc is what's left, the tick is how much of the window's time is left. Arc past the tick means it will last. Agents are a list whose right-hand column holds the model and run time; it stays grey unless something needs you.</dd>
+        <dt>Solves</dt><dd>Nine lines of limits become one row you compare by eye. Short titles take one line. Sources become chips.</dd>
+        <dt>Refuses</dt><dd>Tiles and cards around gauges, a drawn value for a failed read, sentences for normal states.</dd>
+        <dt>You use it by</dt><dd>Looking. Selecting a dial opens that account's exact dates in place; a row opens its thread; the ended line expands.</dd>
+        <dt>Risk</dt><dd>Six or more windows wrap to a second row of dials.</dd>
+      </dl>
+    </div>
+    <div class="frames"></div>
+    <template>
+      <div class="status">
+        <span class="kanji" lang="ja">凪</span>
+        <span class="headline"><b class="num">3</b> running</span>
+        <span class="flags"><span class="asks">1 asks you</span></span>
+        <span class="gear"><svg viewBox="0 0 20 20"><circle cx="10" cy="10" r="2.6"/><path d="M10 2.2v2.4M10 15.4v2.4M2.2 10h2.4M15.4 10h2.4M4.5 4.5l1.7 1.7M13.8 13.8l1.7 1.7M4.5 15.5l1.7-1.7M13.8 6.2l1.7-1.7"/><circle cx="10" cy="10" r="5.4"/></svg></span>
+      </div>
+      <div class="dials">
+        <div class="acct"><span class="acct-name">Codex 1 <span class="chip t3">T3</span></span>
+          <div class="cells"><div class="cell"><span class="dial" data-pct="0" data-state="empty" data-t="0.5" data-pv="codex"></span><span class="w">Weekly</span><span class="d tn">Mon 21:58</span></div></div></div>
+        <div class="acct"><span class="acct-name">Claude 1</span>
+          <div class="cells">
+            <div class="cell"><span class="dial" data-pct="9" data-state="low" data-t="0.34" data-pv="claude"></span><span class="w">Session</span><span class="d tn">20:56</span></div>
+            <div class="cell"><span class="dial" data-pct="72" data-t="0.35" data-pv="claude"></span><span class="w">Weekly</span><span class="d tn">Fri 12:56</span></div>
+            <div class="cell"><span class="dial" data-pct="95" data-t="0.35" data-pv="claude"></span><span class="w">Fable</span><span class="d tn">Fri 12:56</span></div>
+          </div></div>
+        <div class="acct"><span class="acct-name">Codex <span class="chip cx">CX</span></span>
+          <div class="cells"><div class="cell failed"><span class="dial" data-state="failed"></span><span class="w">couldn't check</span><span class="d tn">tried 18:35</span></div></div></div>
+      </div>
+      <div class="list">
+        <div class="proj">
+          <div class="proj-head"><span class="pi" style="--c:#38bdf8">KA</span>Kestrel API <span class="chip t3">T3</span></div>
+          <span class="rail-v" style="bottom:22px"></span>
+          <div class="row is-asks" style="--nc:var(--rose)"><span class="t">Find why the rate limiter answers 429 too early</span><span class="a tn"><span class="pv-gemini">Gemini</span> · 41m<span class="s asks">asks you · 4m</span></span></div>
+        </div>
+        <div class="proj">
+          <div class="proj-head"><span class="pi" style="--c:#a78bfa">TL</span>Tidepool <span class="chip t3">T3</span></div>
+          <span class="rail-v" style="bottom:86px"></span>
+          <div class="row ctx"><span class="t">Plan the offline sync release</span></div>
+          <span class="elbow" style="left:25px;top:52px;height:30px;width:17px"></span>
+          <div class="row d2" style="--nc:var(--pv-codex-node)"><span class="t">Resolve sync conflicts in the notes editor</span><span class="a tn"><span class="pv-codex">Sol</span> · 18m</span></div>
+          <span class="elbow" style="left:25px;top:76px;height:56px;width:17px;border-radius:0 0 0 10px"></span>
+          <div class="row d2" style="--nc:var(--pv-claude-node)"><span class="t">Resume photo uploads after a dropped connection</span><span class="a tn"><span class="pv-claude">Opus</span> · 7m<span class="s" style="color:var(--amber-text);font-weight:420">silent 9m</span></span><span class="lull" style="transform:scaleX(.6)"></span></div>
+        </div>
+        <div class="ended"><b class="tn">15</b> ended <span class="obar"><i style="flex:12"></i><i class="f" style="flex:2"></i><i style="flex:1;background:var(--tertiary)"></i></span><span>2 failed</span><span class="r tn">24 h ›</span></div>
+      </div>
+      <div class="rail"><span><span class="chip t3">T3</span><b class="tn">3</b></span><span><span class="chip cc">CC</span></span><span><span class="chip cx">CX</span>no sessions yet</span></div>
+    </template>
+  </section>
+
+  <!-- 2 ------------------------------------------------------------------------------------ -->
+  <section class="concept" data-c="c2" id="tide-table">
+    <div>
+      <h2>2. Tide Table <span class="rank">· ranked 3</span></h2>
+      <p>One horizontal time axis with now in the middle.</p>
+      <dl>
+        <dt>Idea</dt><dd>The old Now Line, turned on its side. To the left of now, each agent is a bar as long as it has been running. To the right, each limit is a bar that reaches to its reset, filled by what's left.</dd>
+        <dt>Solves</dt><dd>"How long" and "until when" become lengths. The rose line keeps its meaning.</dd>
+        <dt>Refuses</dt><dd>Lists, rings, a hero number.</dd>
+        <dt>You use it by</dt><dd>Reading along the axis; hovering a bar for the exact time.</dd>
+        <dt>Why not</dt><dd>Half the width is all a title gets, so titles truncate, which the bar forbids. A 5-hour window and a 7-day window can't share a readable scale. Lineage has nowhere to go.</dd>
+      </dl>
+    </div>
+    <div class="frames"></div>
+    <template>
+      <div class="top"><span class="kanji" lang="ja">凪</span><span class="w">3 running</span><span class="asks" style="color:var(--rose-text);font-weight:650;margin-left:8px">1 asks you</span><span class="gear"><svg viewBox="0 0 20 20"><circle cx="10" cy="10" r="2.6"/><circle cx="10" cy="10" r="5.4"/></svg></span></div>
+      <div class="axis tn"><span style="left:4%">3 h</span><span style="left:22%">30 m</span><span style="left:38%">5 m</span><span style="left:50%;color:var(--rose-text);font-weight:650">now</span><span style="left:66%">Fri</span><span style="left:82%">Sat</span><span style="left:96%">Mon</span></div>
+      <div class="chart">
+        <span class="nowv"></span>
+        <div class="lane past"><span class="lbl">Find why the rate limiter…</span><span class="bar" style="width:27%;background:var(--rose)"></span></div>
+        <div class="lane future"><span class="lbl"><b>Codex 1</b> empty · Mon 21:58</span><span class="bar" style="width:46%"></span></div>
+        <div class="lane past"><span class="lbl">Resolve sync conflicts in…</span><span class="bar" style="width:22%;background:var(--pv-codex-node)"></span></div>
+        <div class="lane future"><span class="lbl"><b>Claude 1</b> Session 9% · 20:56</span><span class="bar" style="width:5%"><i style="width:9%;background:var(--amber)"></i></span></div>
+        <div class="lane past"><span class="lbl">Resume photo uploads after…</span><span class="bar" style="width:15%;background:var(--pv-claude-node)"></span></div>
+        <div class="lane future"><span class="lbl"><b>Claude 1</b> Weekly 72% · Fri 12:56</span><span class="bar" style="width:17%"><i style="width:72%;background:var(--pv-claude-node)"></i></span></div>
+        <div class="lane future"><span class="lbl"><b>Claude 1</b> Fable 95% · Fri 12:56</span><span class="bar" style="width:17%"><i style="width:95%;background:var(--pv-claude-node)"></i></span></div>
+        <div class="lane future"><span class="lbl"><b>Codex</b> couldn't check · tried 18:35</span></div>
+      </div>
+    </template>
+  </section>
+
+  <!-- 3 ------------------------------------------------------------------------------------ -->
+  <section class="concept" data-c="c3" id="orbit">
+    <div>
+      <h2>3. Orbit <span class="rank">· ranked 4</span></h2>
+      <p>One large radial figure: every window a ring around the count.</p>
+      <dl>
+        <dt>Idea</dt><dd>Apple's Activity rings, for quota. The count sits in the middle; each limit window is a concentric ring, lowest outermost.</dd>
+        <dt>Solves</dt><dd>One memorable figure. It would make a strong icon.</dd>
+        <dt>Refuses</dt><dd>A table of limits.</dd>
+        <dt>You use it by</dt><dd>Matching ring colours to a legend.</dd>
+        <dt>Why not</dt><dd>The legend is the old table again, so the text isn't gone. Past four rings it stops reading. A failed read and an empty window look alike as bare tracks. It spends 240 px on a figure before the first agent.</dd>
+      </dl>
+    </div>
+    <div class="frames"></div>
+    <template>
+      <div class="top"><span class="kanji" lang="ja">凪</span><span class="gear"><svg viewBox="0 0 20 20"><circle cx="10" cy="10" r="2.6"/><circle cx="10" cy="10" r="5.4"/></svg></span></div>
+      <div class="orbit">
+        <svg viewBox="0 0 236 236" aria-hidden="true">
+          <g transform="rotate(-90 118 118)">
+            <circle class="tr" cx="118" cy="118" r="110"/>
+            <circle class="tr" cx="118" cy="118" r="96"/><circle cx="118" cy="118" r="96" stroke="var(--amber)" stroke-dasharray="54.3 604"/>
+            <circle class="tr" cx="118" cy="118" r="82"/><circle cx="118" cy="118" r="82" stroke="var(--pv-claude-node)" stroke-dasharray="371 516"/>
+            <circle class="tr" cx="118" cy="118" r="68"/><circle cx="118" cy="118" r="68" stroke="var(--pv-claude-node)" stroke-dasharray="406 428"/>
+          </g>
+        </svg>
+        <div class="core"><div><b class="num">3</b><span>running</span></div></div>
+      </div>
+      <ul class="legend tn">
+        <li><i style="--c:var(--track)"></i>Codex 1 <b>empty</b></li><li><i style="--c:var(--amber)"></i>Session <b>9%</b></li>
+        <li><i style="--c:var(--pv-claude-node)"></i>Weekly <b>72%</b></li><li><i style="--c:var(--pv-claude-node)"></i>Fable <b>95%</b></li>
+      </ul>
+      <ul class="rows">
+        <li><i style="--c:var(--rose)"></i><span class="t">Find why the rate limiter answers 429 too early</span><span class="m tn" style="color:var(--rose-text);font-weight:650">asks you</span></li>
+        <li><i style="--c:var(--pv-codex-node)"></i><span class="t">Resolve sync conflicts in the notes editor</span><span class="m tn">18m</span></li>
+        <li><i style="--c:var(--pv-claude-node)"></i><span class="t">Resume photo uploads after a dropped connection</span><span class="m tn">7m</span></li>
+      </ul>
+    </template>
+  </section>
+
+  <!-- 4 ------------------------------------------------------------------------------------ -->
+  <section class="concept" data-c="c4" id="still-water">
+    <div>
+      <h2>4. Still Water <span class="rank">· ranked 5</span></h2>
+      <p>Only what needs you, large; everything else one line each.</p>
+      <dl>
+        <dt>Idea</dt><dd>The panel is an inbox of exceptions. When nothing needs you it is almost empty: that is the calm in the name.</dd>
+        <dt>Solves</dt><dd>The least text of all five on a good evening.</dd>
+        <dt>Refuses</dt><dd>Showing anything that is fine.</dd>
+        <dt>You use it by</dt><dd>Opening "3 running" or "5 limits" when you want the rest.</dd>
+        <dt>Why not</dt><dd>It hides the names of running agents behind a click, which is the Mizu failure the first bar set out to beat. Cards on a raised fill are the widget look the owner rejected. "Lowest 9%" quietly summarises windows that must not be merged.</dd>
+      </dl>
+    </div>
+    <div class="frames"></div>
+    <template>
+      <div class="top"><span class="kanji" lang="ja">凪</span><span class="gear"><svg viewBox="0 0 20 20"><circle cx="10" cy="10" r="2.6"/><circle cx="10" cy="10" r="5.4"/></svg></span></div>
+      <div class="needs">
+        <h3><em>One agent asks you.</em> One window is empty.</h3>
+        <div class="card"><div class="k asks">asks you · 4m</div><div class="t">Find why the rate limiter answers 429 too early</div><div class="m tn">Kestrel API · Gemini · 41m</div></div>
+        <div class="card"><div class="k lim">empty until Mon 21:58</div><div class="t">Codex 1 · Weekly</div><div class="m tn">Claude 1 Session is at 9% until 20:56</div></div>
+      </div>
+      <ul class="more">
+        <li>3 running <span class="tn">2 projects</span><svg viewBox="0 0 12 12"><path d="M4.5 2.5 8 6l-3.5 3.5"/></svg></li>
+        <li>5 limits <span class="tn">lowest 9%</span><svg viewBox="0 0 12 12"><path d="M4.5 2.5 8 6l-3.5 3.5"/></svg></li>
+        <li>15 ended <span class="tn">2 failed</span><svg viewBox="0 0 12 12"><path d="M4.5 2.5 8 6l-3.5 3.5"/></svg></li>
+      </ul>
+    </template>
+  </section>
+
+  <!-- 5 ------------------------------------------------------------------------------------ -->
+  <section class="concept" data-c="c5" id="ledger">
+    <div>
+      <h2>5. Ledger <span class="rank">· ranked 2</span></h2>
+      <p>One list, one row anatomy: name, meter, value.</p>
+      <dl>
+        <dt>Idea</dt><dd>Apple Stocks for agents. A limit row is a name, a bar with the time tick and a percent; an agent row is a title, a silence meter and a run time.</dd>
+        <dt>Solves</dt><dd>Every window keeps its date in view, and the meters make the column comparable. Nothing needs a click.</dd>
+        <dt>Refuses</dt><dd>Two-dimensional layouts.</dd>
+        <dt>You use it by</dt><dd>Scanning down two columns.</dd>
+        <dt>Why not, and what I keep</dt><dd>It is still one line per window, so it saves no height, and it is the "rows of text" the critique named, with a bar added. I keep its right-aligned value column and its tick-on-a-meter in the chosen concept: the tick moves onto the ring, the column onto the agent rows.</dd>
+      </dl>
+    </div>
+    <div class="frames"></div>
+    <template>
+      <div class="top"><span class="kanji" lang="ja">凪</span>3 running <span style="color:var(--rose-text);font-weight:650">· 1 asks you</span><span class="gear"><svg viewBox="0 0 20 20"><circle cx="10" cy="10" r="2.6"/><circle cx="10" cy="10" r="5.4"/></svg></span></div>
+      <h4>Limits</h4>
+      <div class="lr tn"><span class="n">Codex 1</span><span class="meter"><u style="left:50%"></u></span><span class="p" style="font-size:13px">empty</span><span class="dte">Mon 21:58</span></div>
+      <div class="lr tn"><span class="n">Claude 1</span><span></span><span></span><span></span></div>
+      <div class="lr sub tn"><span class="n">Session</span><span class="meter"><i style="width:9%;--c:var(--amber)"></i><u style="left:34%"></u></span><span class="p">9%</span><span class="dte">20:56</span></div>
+      <div class="lr sub tn"><span class="n">Weekly</span><span class="meter"><i style="width:72%;--c:var(--pv-claude-node)"></i><u style="left:35%"></u></span><span class="p">72%</span><span class="dte">Fri 12:56</span></div>
+      <div class="lr sub tn"><span class="n">Fable</span><span class="meter"><i style="width:95%;--c:var(--pv-claude-node)"></i><u style="left:35%"></u></span><span class="p">95%</span><span class="dte">Fri 12:56</span></div>
+      <div class="lr tn"><span class="n">Codex</span><span class="meter unk"></span><span class="p" style="color:var(--secondary)">?</span><span class="dte">tried 18:35</span></div>
+      <div class="sep"></div>
+      <h4>Kestrel API</h4>
+      <div class="ar"><span class="t">Find why the rate limiter answers 429 too early<small style="color:var(--rose-text);font-weight:650">asks you · 4m</small></span><span></span><span class="v tn"><span class="pv-gemini">Gemini</span> 41m</span></div>
+      <h4>Tidepool</h4>
+      <div class="ar"><span class="t">Resolve sync conflicts in the notes editor</span><span class="meter"><i style="width:4%"></i></span><span class="v tn"><span class="pv-codex">Sol</span> 18m</span></div>
+      <div class="ar"><span class="t">Resume photo uploads after a dropped connection</span><span class="meter"><i style="width:60%;--c:var(--amber)"></i></span><span class="v tn"><span class="pv-claude">Opus</span> 7m</span></div>
+      <div class="sep"></div>
+      <div class="lr tn" style="height:34px"><span class="n" style="grid-column:1/3">15 ended · 2 failed</span><span></span><span class="dte" style="text-align:right">24 h ›</span></div>
+    </template>
+  </section>
+</main>
+</body>
+</html>
