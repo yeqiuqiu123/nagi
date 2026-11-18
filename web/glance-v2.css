@@ -270,6 +270,8 @@ button.say:focus-visible { outline-offset: -2px; }
 .obar i.failed { background: var(--title); }
 .obar i.stopped { background: none; border: 1.5px solid var(--stroke); }
 .ended-problems { font-size: 13px; font-weight: 500; color: var(--secondary); white-space: nowrap; }
+/* Counts named beside the headline may run long with many sources: they wrap, the chevron stays. */
+.ended-more { flex: 1 1 0; min-width: 0; font-size: 13px; font-weight: 500; color: var(--secondary); font-variant-numeric: tabular-nums; }
 .ended-span { margin-left: auto; display: inline-flex; align-items: center; gap: 3px; font-size: 13px; font-weight: 420; color: var(--secondary); white-space: nowrap; }
 .chev { width: 12px; height: 12px; fill: none; stroke: var(--secondary); stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; }
 .ended-btn[aria-expanded="true"] .chev { transform: rotate(90deg); }

@@ -618,3 +618,26 @@ test('review fixes: one source keeps its accounts apart, the newer window wins, 
   const codex = near.limits.find((l) => l.provider === 'codex');
   assert.deepEqual([codex.pct, codex.low], [10, false]);
 });
+
+test('review round 2: an exact reset picks its account, evidence keeps the minute, no fresh source means no fresh total', () => {
+  const tag = (id, harness) => ({ id, harness, label: 'This computer', placement: 'local' });
+  const quiet = glance([], { status: 'quiet' }).agents;
+  const w = (left, checkedAgo, offsetMs) => ({ id: 'w', label: 'Weekly', kind: 'weekly', remainingPercent: left,
+    resetsAt: new Date(NOW + 40 * 3600000 + (offsetMs || 0)).toISOString(), checkedAt: at(checkedAgo) });
+  const ok = (accounts) => ({ status: 'ok', attemptedAt: at(0), checkedAt: at(0), reason: null, warnings: [], data: { accounts } });
+  const env = (...codex) => ({ version: 1, platform: 'linux', settings: {}, warnings: [], sources: codex.map((c, i) => (
+    { source: tag('s' + i, i ? 'codex' : 't3'), agents: quiet, limits: { codex: c }, coverage: {}, warnings: [] })) });
+  const codexDials = (e) => M.buildSources(e, { now: NOW }).vm.dials.filter((d) => d.provider === 'codex');
+  // T3 reads two accounts 6 s apart; Codex itself matches the second exactly: the empty one stays.
+  const t3 = ok([{ id: 'a', label: 'Codex 1', checkedAt: at(3), windows: [w(0, 3)] }, { id: 'b', label: 'Codex 2', checkedAt: at(3), windows: [w(70, 3, 6000)] }]);
+  const exact = codexDials(env(t3, ok([{ id: 'x', label: 'Codex', checkedAt: at(1), windows: [w(68, 1, 6000)] }])));
+  assert.deepEqual(exact.map((d) => d.cells[0].pct).sort((a, b) => a - b), [0, 68]);
+  // Matching both within the minute and neither exactly: kept apart, three dials.
+  const unsure = codexDials(env(t3, ok([{ id: 'x', label: 'Codex', checkedAt: at(1), windows: [w(68, 1, 3000)] }])));
+  assert.equal(unsure.length, 3);
+  // R, R+50 s, R+100 s: the first two merge; the third is past a minute from the first.
+  const drift = codexDials(env(ok([{ id: 'a', label: 'Codex 1', checkedAt: at(5), windows: [w(50, 5)] }]),
+    ok([{ id: 'b', label: 'Codex 1', checkedAt: at(3), windows: [w(51, 3, 50000)] }]),
+    ok([{ id: 'c', label: 'Codex 1', checkedAt: at(1), windows: [w(52, 1, 100000)] }])));
+  assert.equal(drift.length, 2);
+});

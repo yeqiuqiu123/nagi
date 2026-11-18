@@ -264,10 +264,10 @@
     // The visible line is the button's name; the dated sentence is its description.
     const button = h('button', { class: 'ended-btn', type: 'button', 'data-key': 'ended', 'aria-expanded': String(endedOpen), 'aria-controls': 'ended-list', 'aria-describedby': 'ended-desc' },
       h('span', { class: 'node', 'aria-hidden': 'true' }),
-      h('span', { class: 'ended-line' }, h('b', { text: String(e.count) }), ' ended'),
+      h('span', { class: 'ended-line' }, e.count == null ? 'Ended' : h('b', { text: String(e.count) }), e.count == null ? '' : ' ended'),
       bar.children.length > 0 && bar,
       e.problems && h('span', { class: 'ended-problems', text: e.problems }),
-      e.more && h('span', { class: 'ended-problems', text: e.more }),
+      e.more && h('span', { class: 'ended-more', text: e.more }),
       h('span', { class: 'ended-span' }, e.span, chevron()));
     const desc = h('span', { class: 'sr', id: 'ended-desc', text: e.label + (e.split ? ' ' + e.split + '.' : '') });
     const list = h('ul', { class: 'ended-list', id: 'ended-list', hidden: !endedOpen },
@@ -398,7 +398,18 @@
     const bottom = y(target) + target.getBoundingClientRect().height + INSET - scroll.clientHeight;
     scroll.scrollTop = Math.min(Math.max(want, bottom), y(target) - INSET);
   }
-  function focusKey(key) { const el = document.querySelector(`[data-key="${CSS.escape(key)}"]`); if (el) el.focus({ preventScroll: true }); }
+  // Focus without jumping the page; a dial scrolled out of its band is brought back into it.
+  function focusKey(key) {
+    const el = document.querySelector(`[data-key="${CSS.escape(key)}"]`);
+    if (!el) return;
+    el.focus({ preventScroll: true });
+    const band = el.closest('.dials');
+    if (band) {
+      const b = band.getBoundingClientRect(); const r = el.getBoundingClientRect();
+      if (r.top < b.top) band.scrollTop -= b.top - r.top;
+      else if (r.bottom > b.bottom) band.scrollTop += r.bottom - b.bottom;
+    }
+  }
 
   function layout() {
     drawPast();

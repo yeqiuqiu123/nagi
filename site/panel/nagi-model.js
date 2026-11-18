@@ -230,7 +230,9 @@
           const readAt = !fresh && checked != null ? 'as of ' + hm(checked) : '';
           const asOf = ctx.limitsDownAt == null ? readAt : '';
           const attempt = ctx.limitsDownAt != null ? ctx.limitsDownAt : ms(src.attemptedAt);
-          const triedLater = !fresh && attempt != null && checked != null && attempt > checked ? 'tried ' + hm(attempt) : '';
+          // Each window says when it was read: its own check time, else the account's.
+          const readOf = (w) => (!fresh && (w.checked || checked) != null ? 'as of ' + hm(w.checked || checked) : '');
+          const triedOf = (w) => (!fresh && attempt != null && (w.checked || checked) != null && attempt > (w.checked || checked) ? 'tried ' + hm(attempt) : '');
           const isEmpty = (w) => fresh && w.left === 0;
           // Every limit line reads name, % left, date. A fresh empty window says `empty` and until when.
           const until = (w) => (isEmpty(w) ? 'until ' : '') + dateFrom(w.resets, ctx.now);
@@ -239,7 +241,7 @@
           // is fresh. A window at or under the alert level is low; a dated value is never low.
           const line = (w, name, sub) => ({ name, pct: w.left, empty: isEmpty(w), sub,
             date: until(w), stamp: asOf && wins.length === 1 ? asOf : '', label: (sub ? acc.label + ' ' : '') + name + ': ' + words(w) + (asOf ? ', ' + asOf : ''),
-            window: w.label, resets: w.resets, checked, wchecked: w.checked || checked, tried: triedLater, readAt, when: whenShort(w.resets, ctx.now), timeLeft: timeLeft(w.kind, w.resets, ctx.now), dated: !fresh, asOf,
+            window: w.label, resets: w.resets, checked, wchecked: w.checked || checked, tried: triedOf(w), readAt: readOf(w), when: whenShort(w.resets, ctx.now), timeLeft: timeLeft(w.kind, w.resets, ctx.now), dated: !fresh, asOf,
             // Low compares the raw reading, as the alert does; only the shown number is rounded.
             low: fresh && w.left > 0 && w.raw <= ctx.alertAt });
           const about = { provider: key, state: 'value', checked: fresh ? checked : null };
@@ -318,24 +320,43 @@
   }
   // Several sources: the same window read twice is one dial with both sources' chips. Nothing
   // is averaged: the fresher reading of each window shows. Only different sources merge, on
-  // provider, window name and a reset within a minute (sources round resets differently);
-  // one source's accounts are always distinct. A failed read stays its own dial.
+  // provider, window name and resets within a minute of every reading already merged (sources
+  // round resets differently); one source's accounts are always distinct. A reading that could
+  // belong to two accounts stays apart, unless exactly one has the same reset instant. A failed
+  // read stays its own dial.
   const SAME_RESET_MS = 60000;
   function mergeDials(groups) {
     const merged = [];
     const newer = (a, b) => (a.fresh && !b.fresh) || (a.fresh === b.fresh && a.checked > b.checked);
     const shares = (a, b) => a.from.some((n) => b.from.includes(n));
-    const same = (a, b) => a.full != null && a.full === b.full && a.resets != null && b.resets != null && Math.abs(a.resets - b.resets) <= SAME_RESET_MS;
+    const seen = (x) => x.seen || [x.resets];
+    const close = (c, x) => c.full != null && c.full === x.full && c.resets != null && x.resets != null
+      && Math.max(c.resets, ...seen(x)) - Math.min(c.resets, ...seen(x)) <= SAME_RESET_MS;
+    // The one merged window a reading belongs to, or null when none or more than one could.
+    const home = (c, g) => {
+      const near = [];
+      merged.forEach((m) => { if (m.provider === g.provider && m.rank === 0 && !shares(m, g)) m.cells.forEach((x, i) => { if (close(c, x)) near.push({ m, i, exact: seen(x).includes(c.resets) }); }); });
+      const exact = near.filter((n) => n.exact);
+      return near.length === 1 ? near[0] : exact.length === 1 ? exact[0] : null;
+    };
     for (const g of groups) {
-      const into = merged.find((m) => m.provider === g.provider && m.rank === g.rank && !shares(m, g) && (g.rank === 0
-        ? g.cells.some((c) => m.cells.some((x) => same(c, x)))
-        : m.name === g.name && m.cells[0].w === g.cells[0].w && m.cells[0].d === g.cells[0].d));
+      let into = null; let places = [];
+      if (g.rank === 0) {
+        places = g.cells.map((c) => ({ c, at: home(c, g) }));
+        const targets = [...new Set(places.filter((p) => p.at).map((p) => p.at.m))];
+        // Every window must agree on one account: matched there, or a window it doesn't have.
+        if (targets.length === 1 && places.every((p) => (p.at ? p.at.m === targets[0] : !targets[0].cells.some((x) => x.full === p.c.full)))) into = targets[0];
+      } else {
+        into = merged.find((m) => m.provider === g.provider && m.rank === g.rank && !shares(m, g)
+          && m.name === g.name && m.cells[0].w === g.cells[0].w && m.cells[0].d === g.cells[0].d) || null;
+      }
       if (!into) { merged.push(g); continue; }
       into.from.push(...g.from);
       g.sources.forEach((t) => { if (!into.sources.some((x) => x.id === t.id)) into.sources.push(t); });
-      g.cells.forEach((c) => {
-        const at = into.cells.findIndex((x) => same(x, c));
-        if (at < 0) { if (c.full != null) into.cells.push(c); } else if (newer(c, into.cells[at])) into.cells[at] = c;
+      places.forEach(({ c, at }) => {
+        if (!at) { into.cells.push(c); return; }
+        const x = into.cells[at.i]; const evidence = [...seen(x), c.resets];
+        into.cells[at.i] = newer(c, x) ? { ...c, seen: evidence } : { ...x, seen: evidence };
       });
       into.cells.sort((x, y) => x.pct - y.pct);
       into.lowest = Math.min(into.lowest, g.lowest);
@@ -661,21 +682,23 @@
       const counted = withEnded.filter((x) => !x.aside && !x.dated);
       const twice = withEnded.filter((x) => x.aside && !x.dated);
       const old = withEnded.filter((x) => x.dated);
-      const more = [
-        ...twice.map((x) => ({ short: '+' + x.e.count + ' in ' + (x.tag ? x.tag.name : 'another app'), said: x.e.count + ' more in ' + (x.tag ? x.tag.name : 'another app') + ', possibly also counted above' })),
-        ...old.map((x) => ({ short: '+' + x.e.count + ' dated', said: x.e.count + ' more from ' + (x.tag ? x.tag.name : 'a source') + ', not read just now' })),
-      ].filter((m) => !/^\+0 /.test(m.short));
       const sum = (fn) => counted.reduce((t, x) => t + fn(x.e), 0);
+      // With no fresh source to count, there is no fresh total: the headline has no number.
+      const count = counted.length ? sum((e) => e.count) : null;
+      const more = [
+        ...twice.map((x) => ({ n: x.e.count, short: '+' + x.e.count + ' in ' + (x.tag ? x.tag.name : 'another app'),
+          said: x.e.count + ' more in ' + (x.tag ? x.tag.name : 'another app') + (count ? ', possibly also counted above' : '') })),
+        ...old.map((x) => ({ n: x.e.count, short: '+' + x.e.count + ' dated', said: x.e.count + ' more from ' + (x.tag ? x.tag.name : 'a source') + ', not read just now' })),
+      ].filter((m) => m.n > 0);
       const first = withEnded[0].e;
       const totals = { completed: sum((e) => e.totals.completed), failed: sum((e) => e.totals.failed), stopped: sum((e) => e.totals.stopped) };
       const groups = withEnded.flatMap((x) => x.e.groups.map((g) => ({ ...g, key: (x.tag ? x.tag.id + ':' : '') + g.id, source: x.tag })))
         .sort((x, y) => y.last - x.last);
-      const count = sum((e) => e.count);
       const problems = [totals.failed ? totals.failed + ' failed' : '', totals.stopped ? totals.stopped + ' stopped' : ''].filter(Boolean).join(', ');
       ended = { count, span: first.span, since: first.since, totals, problems, groups,
         more: more.map((m) => m.short).join(' · '),
         split: many ? '' : first.split,
-        label: count + ' ended since ' + first.since + (problems ? ': ' + problems : '') + (more.length ? '; ' + more.map((m) => m.said).join('; ') : '') + '.' };
+        label: (count == null ? 'Ended' : count + ' ended') + ' since ' + first.since + (problems ? ': ' + problems : '') + (more.length ? '; ' + more.map((m) => m.said).join('; ') : '') + '.' };
     }
     const rail = many ? items.map((i, n) => railItem(tags[n], i.s, i.vm)) : [];
     const said = items.map((i, n) => (i.vm.omitted ? (many ? tags[n].name + ': ' : '') + i.vm.omitted : '')).filter(Boolean);
