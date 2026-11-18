@@ -331,10 +331,11 @@ test('sources envelope: one source renders exactly as today; several stay source
   const single = M.buildSources(env([read('legacy-t3', 'This computer', g.agents)]), { now: NOW });
   assert.equal(single.kind, 'single');
   // The panel's composed view (dials, list, Ended, rail) is added on top of it, never in its place.
-  const { dials, dialNotes, list, endedAll, rail, notes, ...core } = JSON.parse(JSON.stringify(single.vm));
+  const { dials, dialNotes, list, endedAll, rail, notes, unread, ...core } = JSON.parse(JSON.stringify(single.vm));
   assert.deepEqual(core, JSON.parse(JSON.stringify(M.build({ ...g, warnings: [] }, limits(), { now: NOW }))));
   assert.deepEqual(rail, []); // one source: no rail, no chips
-  assert.ok(dials.every((d) => d.source === null && !d.showSource));
+  assert.ok(dials.every((d) => d.sources.length === 0)); // and no chips under the dials
+  assert.equal(unread, 0);
   assert.deepEqual(list.map((p) => p.title), ['P']);
 
   // Two sources, one failing: counts sum only the fresh one; the failing one keeps its own truth.
@@ -452,7 +453,7 @@ test('dials: one ring per account window, lowest account first; the tick is the 
   assert.deepEqual(vm.dials.map((d) => d.name), ['Codex 2', 'Codex 1', 'Claude 1']);
   const [empty, codex, claude] = vm.dials;
   assert.deepEqual(empty.cells.map((c) => [c.state, c.pct, c.w, c.d]), [['empty', 0, 'Weekly', 'Tue 00:05']]);
-  assert.equal(empty.label, 'Codex 2: empty until Tue 17 Nov 00:05.');
+  assert.equal(empty.label, 'Codex 2: empty until Tue 17 Nov 00:05, checked 06:03.');
   assert.deepEqual(codex.cells.map((c) => [c.state, c.pct, c.d]), [['value', 67, 'Sat 22:05']]);
   // 40 of 168 hours are left in the week: the tick sits there, the arc at 67%.
   assert.ok(Math.abs(codex.cells[0].timeLeft - 40 / 168) < 1e-9);
@@ -499,7 +500,8 @@ test('the status column: a healthy row says only its model and run time; excepti
   const vm = M.build(glance([{ id: 'p', title: 'P', agents: rows }], { counts: { running: 5, waitingOnYou: 1, stuck: 1 } }), limits(), { now: NOW });
   const by = Object.fromEntries(flat(vm).map((r) => [r.title, r]));
   assert.deepEqual([by.Fresh.model, by.Fresh.run, by.Fresh.note], ['Sol', '7m', null]);
-  assert.deepEqual([by.Quiet.run, by.Quiet.note], ['3h 20m', { text: 'silent 6m', cls: 'quiet' }]);
+  // Growing silence is drawn by the row's node (6 of 15 minutes), not written.
+  assert.deepEqual([by.Quiet.run, by.Quiet.note, by.Quiet.silence.f], ['3h 20m', null, 0.4]);
   assert.deepEqual(by.Stuck.note, { text: 'silent 17m', cls: 'stuck' });
   assert.deepEqual(by.Asks.note, { text: 'asks you · 4m', cls: 'asks' });
   assert.deepEqual([by.Queued.run, by.Queued.note], ['queued', null]);
@@ -533,17 +535,54 @@ test('several sources: one list and one Ended line, a rail that names what canno
     [['T3', 'live', 1, ''], ['T3·2', 'down', null, "can't reach · 06:05"], ['CC', 'live', 1, ''], ['CX', 'waiting', null, 'no sessions yet']]);
   assert.match(vm.rail[3].detail, /Nothing seen from Codex yet/);
   assert.equal(vm.rail[1].title, 'T3 Code · Computer 2');
-  // Codex is reported by T3 and by Codex itself: those dials carry their source; Claude's doesn't.
-  const codex = vm.dials.filter((d) => d.provider === 'codex' && d.rank === 0);
-  assert.equal(codex.length, 4); // two accounts from each source, never merged
-  assert.ok(codex.every((d) => d.showSource));
-  assert.ok(vm.dials.filter((d) => d.provider === 'claude' && d.rank === 0).every((d) => !d.showSource));
+  // T3 and Codex itself both read the same two Codex windows (same provider, window and reset
+  // instant): each is one dial with both chips, never two rows. Claude was read by T3 only.
+  const codex = vm.dials.filter((d) => d.provider === 'codex');
+  assert.deepEqual(codex.map((d) => [d.name, d.cells.length, d.sources.map((t) => t.chip)]), [['Codex 2', 1, ['T3', 'CX']], ['Codex 1', 1, ['T3', 'CX']]]);
+  assert.deepEqual(vm.dials.filter((d) => d.provider === 'claude').map((d) => d.sources.map((t) => t.chip)), [['T3']]);
   assert.equal(new Set(vm.dials.map((d) => d.key)).size, vm.dials.length);
-  assert.match(codex[0].label, /read by (T3 Code|Codex)/);
+  assert.match(codex[0].label, /read by T3 Code and Codex/);
+  assert.equal(vm.unread, 1); // one source can't be reached: one short flag in the header
   // One Ended line: counts summed from each source's own, groups tagged with their source.
   assert.equal(vm.endedAll.count, 6);
   assert.deepEqual(vm.endedAll.totals, { completed: 2, failed: 2, stopped: 2 });
   assert.equal(vm.endedAll.problems, '2 failed, 2 stopped');
   assert.equal(vm.endedAll.span, '24 h');
   assert.deepEqual(vm.endedAll.groups.map((g) => g.source.chip).sort(), ['T3', 'T3·2']);
+});
+
+test('the same window read by two sources is one dial: the fresher reading shows, nothing is averaged, a failed read stays apart', () => {
+  const tag = (id, harness) => ({ id, harness, label: 'This computer', placement: 'local' });
+  const one = (left, checkedAgo, status) => ({ status: 'ok', attemptedAt: at(0), checkedAt: at(checkedAgo), reason: null, warnings: [],
+    data: { accounts: [{ id: 'c', label: 'Codex 1', status: status || 'ok', checkedAt: at(checkedAgo), windows: [win('primary', 'Weekly', left, 40)] }] } });
+  const env = (t3, cx, cc) => ({ version: 1, platform: 'linux', settings: { stuckMinutes: 15, endedExpiryHours: 24 }, warnings: [], sources: [
+    { source: tag('a', 't3'), agents: glance([], { status: 'quiet' }).agents, limits: { codex: t3, claude: limits().providers.claude }, coverage: {}, warnings: [] },
+    { source: tag('b', 'codex'), agents: glance([], { status: 'quiet' }).agents, limits: { codex: cx }, coverage: {}, warnings: [] },
+    { source: tag('c', 'claude'), agents: glance([], { status: 'quiet' }).agents, limits: { claude: cc }, coverage: {}, warnings: [] }] });
+  const failed = { status: 'unavailable', attemptedAt: at(2), checkedAt: null, reason: 'probe_failed', warnings: [], data: null };
+  const dials = (e) => M.buildSources(e, { now: NOW }).vm.dials;
+  // 87 read ten minutes ago by T3, 85 read a minute ago by Codex: one dial at 85, both chips.
+  const merged = dials(env(one(87, 10), one(85, 1), failed)).filter((d) => d.provider === 'codex');
+  assert.equal(merged.length, 1);
+  assert.deepEqual([merged[0].cells[0].pct, merged[0].sources.map((t) => t.chip)], [85, ['T3', 'CX']]);
+  assert.equal(merged[0].about, 'read by T3 Code and Codex · checked 06:04');
+  // A dated reading never replaces a fresh one, however recent it claims to be.
+  const dated = dials(env(one(87, 10), one(3, 1, 'last_known'), failed)).filter((d) => d.provider === 'codex');
+  assert.deepEqual([dated.length, dated[0].cells[0].pct, dated[0].cells[0].state], [1, 87, 'value']);
+  // A different reset instant is a different window: two dials.
+  const other = one(40, 1); other.data.accounts[0].windows[0].resetsAt = new Date(NOW + 90 * 3600000).toISOString();
+  assert.equal(dials(env(one(87, 10), other, failed)).filter((d) => d.provider === 'codex').length, 2);
+  // Claude Code couldn't check: its dashed ring stays beside T3's Claude 1, with its own chip.
+  const claude = dials(env(one(87, 10), one(85, 1), failed)).filter((d) => d.provider === 'claude');
+  assert.deepEqual(claude.map((d) => [d.name, d.cells[0].state, d.sources.map((t) => t.chip)]), [['Claude 1', 'value', ['T3']], ['Claude', 'failed', ['CC']]]);
+});
+
+test('an empty list is a mark and a few words, with the sentence as its detail', () => {
+  const say = (o, env) => M.build(glance([], o), limits(), { now: NOW, ...(env || {}) }).say;
+  assert.deepEqual(say({ status: 'quiet' }), { icon: 'waves', words: 'Nothing ran in 24 h', detail: '' });
+  assert.deepEqual([say({ status: 'not_set_up', reason: 'not_configured' }).icon, say({ status: 'not_set_up', reason: 'not_configured' }).words], ['plug', 'Not connected here']);
+  assert.match(say({ status: 'not_set_up', reason: 'not_configured' }).detail, /isn't connected on this computer/);
+  assert.deepEqual([say({ status: 'unavailable', reason: 'cannot_reach_t3' }).icon, say({ status: 'unavailable', reason: 'cannot_reach_t3' }).words], ['unplug', 'Not read yet']);
+  assert.equal(say({ status: 'quiet', omitted: 2 }).words, 'Not fully read');
+  assert.equal(M.build(glance([{ id: 'p', title: 'P', agents: [agent('A', 'running')] }], { counts: { running: 1 } }), limits(), { now: NOW }).say, null);
 });

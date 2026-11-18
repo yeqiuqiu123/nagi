@@ -151,7 +151,7 @@
     const urgency = Math.max(asks ? 2 : stuck ? 1 : 0, ...kids.map((k) => k.urgency));
     kids.sort((x, y) => (y.urgency - x.urgency) || (y.latest - x.latest) || (x.title < y.title ? -1 : 1));
     // The status column: the model and run time, then a state only when there is one to say.
-    // A healthy row says nothing more; silence speaks from a third of the stuck threshold.
+    // A healthy row says nothing more, and growing silence is drawn by its node, not written.
     let run = ''; let note = null;
     if (active) {
       if (a.state === 'queued' || a.state === 'preparing' || a.state === 'starting') run = a.state;
@@ -160,7 +160,6 @@
       else if (stuck) note = { text: 'silent ' + short(silent || 0), cls: 'stuck' };
       else if (ctx.dated) note = { text: 'last seen ' + hm(ctx.checked), cls: 'dated' };
       else if (a.state === 'waiting') note = { text: 'waiting', cls: 'quiet' };
-      else if (silence && silence.cls !== 'hidden') note = { text: 'silent ' + short(silent), cls: silence.cls };
       else if (!silence && a.state === 'running' && silent != null && silent >= 60000) note = { text: short(silent) + ' ago', cls: 'quiet' };
     }
     const parts = splitPrefix(a.title, project);
@@ -234,7 +233,7 @@
           // is fresh. A window at or under the alert level is low; a dated value is never low.
           const line = (w, name, sub) => ({ name, pct: w.left, empty: isEmpty(w), sub,
             date: until(w), stamp: asOf && wins.length === 1 ? asOf : '', label: (sub ? acc.label + ' ' : '') + name + ': ' + words(w) + (asOf ? ', ' + asOf : ''),
-            window: w.label, when: whenShort(w.resets, ctx.now), timeLeft: timeLeft(w.kind, w.resets, ctx.now), dated: !fresh, asOf,
+            window: w.label, resets: w.resets, checked, when: whenShort(w.resets, ctx.now), timeLeft: timeLeft(w.kind, w.resets, ctx.now), dated: !fresh, asOf,
             low: fresh && w.left > 0 && w.left <= ctx.alertAt });
           const about = { provider: key, state: 'value', checked: fresh ? checked : null };
           if (wins.length === 1) {
@@ -279,28 +278,58 @@
   // Window names shorten to their last part (`Weekly · Fable` → `Fable`) unless that collides.
   function dialGroups(lines, tag) {
     return (lines || []).map((l) => {
-      const cell = (w, name) => ({ state: w.empty ? 'empty' : w.dated ? 'dated' : w.low ? 'low' : 'value', pct: w.pct, timeLeft: w.timeLeft,
-        w: name, d: w.dated && w.asOf ? w.asOf : w.when, label: w.label });
-      let cells; let rows;
+      // One window is one dial wherever it was read: provider, window name and reset instant,
+      // the key the reader already uses so an alert is never delivered twice.
+      const cell = (w, name, full) => ({ state: w.empty ? 'empty' : w.dated ? 'dated' : w.low ? 'low' : 'value', pct: w.pct, timeLeft: w.timeLeft,
+        w: name, d: w.dated && w.asOf ? w.asOf : w.when, label: w.label,
+        key: [l.provider, full, Math.round(w.resets / 60000)].join('|'), fresh: !w.dated, checked: w.checked || 0,
+        row: { name: full, pct: w.pct, empty: w.empty, date: w.date + (w.dated && w.asOf ? ' · ' + w.asOf : '') } });
+      let cells;
       if (l.head) {
         const lasts = l.subs.map((x) => String(x.name).split(' · ').pop());
         const names = new Set(lasts).size === lasts.length ? lasts : l.subs.map((x) => x.name);
-        cells = l.subs.map((x, i) => cell(x, names[i]));
-        rows = l.subs.map((x) => ({ name: x.name, pct: x.pct, empty: x.empty, date: x.date }));
+        cells = l.subs.map((x, i) => cell(x, names[i], x.name));
       } else if (l.pct != null) {
-        cells = [cell(l, String(l.window || 'Limit').split(' · ').pop())];
-        rows = [{ name: l.window || 'Limit', pct: l.pct, empty: l.empty, date: l.date }];
+        cells = [cell(l, String(l.window || 'Limit').split(' · ').pop(), l.window || 'Limit')];
       } else {
-        cells = [{ state: l.state || 'failed', pct: null, timeLeft: null, w: (l.short || [l.date])[0], d: (l.short || [])[1] || '', label: l.label }];
-        rows = [{ name: '', pct: null, empty: false, date: l.date }];
+        cells = [{ state: l.state || 'failed', pct: null, timeLeft: null, w: (l.short || [l.date])[0], d: (l.short || [])[1] || '', label: l.label,
+          key: null, fresh: false, checked: 0, row: { name: '', pct: null, empty: false, date: l.date } }];
       }
       const rank = l.pct != null || l.head ? 0 : l.state === 'absent' ? 2 : 1;
-      const by = tag ? 'read by ' + tag.name + (tag.label ? ' · ' + tag.label : '') : '';
-      const stamp = l.stamp || (l.checked != null ? 'checked ' + hm(l.checked) : '');
-      return { key: (tag ? tag.id + ':' : '') + (l.provider || '') + ':' + l.name, name: l.name, provider: l.provider || null, source: tag || null, showSource: false,
-        rank, lowest: l.lowest != null ? l.lowest : 101, cells, rows, about: [by, stamp].filter(Boolean).join(' · '),
-        label: l.label + (by ? ', ' + by : '') + '.' };
+      return finishDial({ key: (tag ? tag.id + ':' : '') + (l.provider || '') + ':' + l.name, name: l.name, provider: l.provider || null, sources: tag ? [tag] : [],
+        rank, lowest: l.lowest != null ? l.lowest : 101, cells, checked: l.checked != null ? l.checked : null });
     });
+  }
+  // A group's derived words: its detail rows, who read it, and its accessible name.
+  function finishDial(g) {
+    g.rows = g.cells.map((c) => c.row);
+    const by = g.sources.length ? 'read by ' + g.sources.map((t) => t.name + (t.showLabel ? ' · ' + t.label : '')).join(' and ') : '';
+    g.about = [by, g.checked != null ? 'checked ' + hm(g.checked) : ''].filter(Boolean).join(' · ');
+    g.label = g.cells.map((c) => c.label).join('; ') + (g.about ? ', ' + g.about : '') + '.';
+    return g;
+  }
+  // Several sources: the same window read twice is one dial with both sources' chips. Nothing
+  // is averaged: the fresher reading shows. A failed read stays its own dial, with its source.
+  function mergeDials(groups) {
+    const merged = []; const home = new Map();
+    const newer = (a, b) => (a.fresh && !b.fresh) || (a.fresh === b.fresh && a.checked > b.checked);
+    for (const g of groups) {
+      const keys = g.cells.map((c) => c.key).filter(Boolean);
+      const into = keys.map((k) => home.get(k)).find(Boolean)
+        || (g.rank > 0 ? merged.find((m) => m.rank === g.rank && m.provider === g.provider && m.name === g.name && m.cells[0].w === g.cells[0].w && m.cells[0].d === g.cells[0].d) : null);
+      if (!into) { merged.push(g); keys.forEach((k) => home.set(k, g)); continue; }
+      g.sources.forEach((t) => { if (!into.sources.some((x) => x.id === t.id)) into.sources.push(t); });
+      g.cells.forEach((c) => {
+        const at = c.key ? into.cells.findIndex((x) => x.key === c.key) : -1;
+        if (at < 0) { if (c.key) { into.cells.push(c); home.set(c.key, into); } }
+        else if (newer(c, into.cells[at])) into.cells[at] = c;
+      });
+      into.cells.sort((x, y) => x.pct - y.pct);
+      into.lowest = Math.min(into.lowest, g.lowest);
+      if (g.checked != null && (into.checked == null || g.checked > into.checked)) into.checked = g.checked;
+      finishDial(into);
+    }
+    return merged.sort((x, y) => (x.rank - y.rank) || (x.lowest - y.lowest));
   }
 
   function limitsFrom(limits) {
@@ -497,6 +526,14 @@
           : 'Nothing ran in the last ' + ctx.endedHours + ' h.';
     }
     if (incomplete && !counts.running) { hero.subs = hero.subs.filter((t) => !t.startsWith('nothing running since')); hero.since = ''; }
+    // An empty list is a quiet mark and a few words; the sentence is its detail.
+    const span = ctx.endedHours <= 48 ? ctx.endedHours + ' h' : Math.round(ctx.endedHours / 24) + ' d';
+    const say = !message ? null
+      : mode === 'live' ? (incomplete ? { icon: 'question', words: 'Not fully read', detail: message }
+        : partial ? { icon: 'hourglass', words: 'No sessions yet', detail: message } : { icon: 'waves', words: 'Nothing ran in ' + span, detail: '' })
+        : mode === 'not_set_up' ? { icon: 'plug', words: 'Not connected here', detail: message }
+          : mode === 'unsupported' ? { icon: 'question', words: 'Version not supported', detail: message }
+            : { icon: 'unplug', words: readerDown ? "Reader isn't answering" : 'Not read yet', detail: message };
     const omitted = data && data.omittedRows > 0 ? data.omittedRows + (data.omittedRows === 1 ? " thread couldn't be read." : " threads couldn't be read.")
       : data && (data.warnings || []).includes('stale_source') ? 'A session went quiet without finishing, so Nagi stopped showing it.' : '';
     const limitWarnings = PROVIDERS.some(([key]) => { const src = limits && limits.providers && limits.providers[key]; return src && src.warnings && src.warnings.length; });
@@ -504,7 +541,7 @@
 
     return {
       mode, now, nowTime: hm(now), platform: glance && glance.platform === 'macos' ? 'Mac' : 'Linux',
-      hero, heroLabel, message, omitted, projects,
+      hero, heroLabel, message, say, omitted, projects,
       limits: limitLines(limits, ctx), dated,
       // A limits read that failed after a good one says so once, with both times.
       limitNote: ctx.limitsDownAt != null && !dated && limitsFrom(limits) != null
@@ -558,7 +595,7 @@
       const mono = MONOGRAMS[harness] || String(harnessName(harness)).slice(0, 2).toUpperCase();
       return { id: s.source.id, harness, mono, chip: several && n > 1 ? mono + '·' + n : mono, name: harnessName(harness), label: s.source.label,
         // A second connection of the same app is told apart by the owner's own label.
-        showLabel: several };
+        showLabel: several && s.source.label !== 'This computer' };
     });
   }
 
@@ -574,29 +611,24 @@
     const words = state === 'waiting' ? 'no sessions yet' : state === 'checking' ? 'checking…' : state === 'absent' ? 'not set up'
       : v.mode === 'unsupported' ? 'not supported' : state === 'down' ? "can't reach" + (tried != null ? ' · ' + hm(tried) : '') : '';
     const detail = v.mode === 'live' ? v.message : [v.hero.alert, ...v.hero.subs, v.message].filter(Boolean).join(' · ');
-    const name = tag.name + (tag.showLabel || tag.label !== 'This computer' ? ' · ' + tag.label : '');
-    return { ...tag, state, count: state === 'live' ? running : null, words, detail, title: name,
-      label: name + ': ' + (words || (running ? running + ' running' : 'nothing running')) + '.' };
+    const name = tag.name + ' · ' + tag.label;
+    const icon = state === 'waiting' || state === 'checking' ? 'hourglass' : state === 'absent' ? 'plug' : v.mode === 'unsupported' ? 'question' : state === 'down' ? 'unplug' : '';
+    return { ...tag, state, icon, count: state === 'live' ? running : null, words, detail, title: name,
+      said: name + ': ' + (words || (running ? running + ' running' : 'nothing running')) + '.' };
   }
 
   function compose(view, items, extra) {
     const vm = view.vm;
     const many = items.length > 1;
     const tags = many ? sourceTags(items.map((i) => i.s)) : [];
-    // Dials: every account of every source, lowest first, then failed reads, then absent ones.
-    const dials = [];
+    // Dials: every account window once, lowest first, then failed reads, then absent ones.
+    const all = [];
     const notes = [];
     items.forEach((i, n) => {
-      dials.push(...dialGroups(i.vm.limits, many ? tags[n] : null));
+      all.push(...dialGroups(i.vm.limits, many ? tags[n] : null));
       if (i.vm.limitNote) notes.push((many ? tags[n].name + ': ' : '') + i.vm.limitNote);
     });
-    dials.sort((x, y) => (x.rank - y.rank) || (x.lowest - y.lowest));
-    // A source chip sits beside an account only when two sources report the same provider.
-    if (many) {
-      const sourcesBy = {};
-      dials.forEach((d) => { (sourcesBy[d.provider] = sourcesBy[d.provider] || new Set()).add(d.source.id); });
-      dials.forEach((d) => { d.showSource = sourcesBy[d.provider].size > 1; });
-    }
+    const dials = mergeDials(all);
     // The watch list: every source's projects in one list, what needs the owner first; a
     // source that can't be reached keeps its dated rows, last.
     const list = [];
@@ -622,6 +654,9 @@
     const rail = many ? items.map((i, n) => railItem(tags[n], i.s, i.vm)) : [];
     const said = items.map((i, n) => (i.vm.omitted ? (many ? tags[n].name + ': ' : '') + i.vm.omitted : '')).filter(Boolean);
     vm.dials = dials; vm.dialNotes = notes; vm.list = list; vm.endedAll = ended; vm.rail = rail; vm.notes = said;
+    // Sources that can't be read are one short flag in the header; the rail says which.
+    vm.unread = rail.filter((r) => r.state === 'down').length;
+    if (many) vm.say = null;
     return view;
   }
 
@@ -640,6 +675,7 @@
       const vm = build({ agents: { status: 'not_set_up', reason: 'no_sources' }, settings: env && env.settings, platform: env && env.platform }, null, opts);
       vm.hero.alert = 'Nothing connected yet'; vm.hero.subs = []; vm.heroLabel = vm.hero.alert;
       vm.message = 'Choose the agent apps Nagi should watch.';
+      vm.say = { icon: 'plug', words: 'Choose apps to watch', detail: '' };
       vm.limits = []; vm.limitNote = '';
       return one({ kind: 'empty', vm });
     }
@@ -747,5 +783,5 @@
     return targets;
   }
 
-  return { build, buildSources, traySources, dialGroups, short, whenShort, timeLeft, setupTargets, connectInSequence, harnessName, HARNESSES, trayLabel, freshEmpty, projectIdentity, ICON_COLORS, providerKey, clampSetting, SETTINGS, dur, ago, hm, longDate, dateFrom, modelWord, percent, splitPrefix, agentsMode, ACTIVE };
+  return { build, buildSources, traySources, dialGroups, mergeDials, sourceMonogram: (id) => MONOGRAMS[id] || String(harnessName(id)).slice(0, 2).toUpperCase(), short, whenShort, timeLeft, setupTargets, connectInSequence, harnessName, HARNESSES, trayLabel, freshEmpty, projectIdentity, ICON_COLORS, providerKey, clampSetting, SETTINGS, dur, ago, hm, longDate, dateFrom, modelWord, percent, splitPrefix, agentsMode, ACTIVE };
 });
