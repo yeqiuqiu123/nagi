@@ -102,20 +102,13 @@ install_linux() {
             'If that does not help, see: systemctl --user status nagi-reader.service'
     ok 'Reader running this version'
 
-    # One login entry starts the tray: it hands it to the nagi-tray user service (restarted after
-    # a crash) when the session has a systemd user manager, and runs it directly when not.
-    # install_reader.py wrote both; an entry you switched off is left switched off.
-    ok 'Nagi starts with your desktop'
+    # Nagi's login entry (written by install_reader.py) starts the tray under a small supervisor
+    # that restarts it after a crash; an entry you switched off stays switched off.
+    ok 'Nagi starts with your desktop and restarts if it crashes'
     if (( LAUNCH )); then
+        # A tray that is already open keeps its single instance; this start then simply ends.
         setsid -f "$py" -B "$ROOT/linux/tray.py" --port "$PORT" --login >/dev/null 2>&1 < /dev/null || true
-        sleep 2
         ok 'Nagi is open: look for 凪 in the top bar'
-    fi
-    if ! systemctl --user is-active --quiet nagi-tray.service 2>/dev/null; then
-        # A tray started before this install keeps the single-instance lock, so the service
-        # can't take over yet. It does at the next login, or now after Quit Nagi and
-        # `systemctl --user start nagi-tray`.
-        note 'If Nagi was already open, it switches to the restart-on-crash service at your next login.'
     fi
 }
 

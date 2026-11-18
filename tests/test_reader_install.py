@@ -34,15 +34,10 @@ class InstallerTests(TestCase):
                 else:
                     self.assertIn(b'--data-dir', first)
                     self.assertNotIn(b'gateway', first)
-                    tray = (home / '.config/systemd/user/nagi-tray.service').read_text()
-                    self.assertEqual(stat.S_IMODE((home / '.config/systemd/user/nagi-tray.service').stat().st_mode), 0o600)
-                    self.assertIn('linux/tray.py" "--port" "47841"', tray)
-                    self.assertIn('Restart=on-failure', tray)
-                    self.assertIn('RestartPreventExitStatus=2', tray)
-                    self.assertNotIn('[Install]', tray)  # started by the login entry, not a target
-                    self.assertNotIn('@COMMAND@', tray)
+                    self.assertFalse((home / '.config/systemd/user/nagi-tray.service').exists())
                     entry = (home / '.config/autostart/local.nagi.tray.desktop').read_text()
                     self.assertIn('linux/tray.py" "--port" "47841" "--login"', entry)
+                    self.assertTrue(entry.startswith('[Desktop Entry]\n'))
 
     def test_installer_rejects_outside_home_and_symlinked_destinations(self):
         with TemporaryDirectory() as temp:
@@ -86,20 +81,37 @@ class InstallerTests(TestCase):
 
 
 class TrayLaunchTests(TestCase):
-    def test_dollars_in_a_path_reach_systemd_literally(self):
+    def test_dollars_and_percents_in_a_path_survive_systemd_and_the_desktop_entry(self):
+        import shutil
+        try:
+            from gi.repository import GLib
+        except ImportError:
+            self.skipTest('GLib is needed to parse the desktop entry the way desktops do')
         with TemporaryDirectory() as temp:
             home = Path(temp)
-            weird = home / 'Nagi ${USER} 100%'
-            import shutil
+            weird = home / 'Nagi ${USER} 100% \\ "q"'
             shutil.copytree(install_reader.ROOT / 'linux', weird / 'linux', ignore=shutil.ignore_patterns('__pycache__'))
             with patch.object(install_reader, 'ROOT', weird):
                 install_reader.install('linux', home / 'data', 47841, sys.executable, home)
-            for name in ('nagi-reader.service', 'nagi-tray.service'):
-                unit = (home / '.config/systemd/user' / name).read_text()
-                exec_line = next(line for line in unit.splitlines() if line.startswith('ExecStart='))
-                self.assertIn('Nagi $${USER} 100%%', exec_line)
-            # The login entry follows the desktop-entry rules instead: \$ and %%.
-            self.assertIn('Nagi \\${USER} 100%%', (home / install_reader.LOGIN_ENTRY).read_text())
+            unit = (home / '.config/systemd/user/nagi-reader.service').read_text()
+            exec_line = next(line for line in unit.splitlines() if line.startswith('ExecStart='))
+            self.assertIn('Nagi $${USER} 100%%', exec_line)
+            # GLib's strict key-file reader and its Exec parser give back the exact path.
+            for entry in (home / install_reader.LOGIN_ENTRY, home / '.local/share/applications/local.nagi.notifications.desktop'):
+                keys = GLib.KeyFile()
+                keys.load_from_file(str(entry), GLib.KeyFileFlags.NONE)
+                ok, argv = GLib.shell_parse_argv(keys.get_string('Desktop Entry', 'Exec').replace('%%', '%'))
+                self.assertTrue(ok)
+                self.assertTrue(any(arg.startswith(str(weird / 'linux')) for arg in argv), argv)
+
+    def test_login_entry_never_writes_through_a_symlinked_folder(self):
+        with TemporaryDirectory() as temp, TemporaryDirectory() as elsewhere:
+            home = Path(temp)
+            (home / '.config').mkdir()
+            (home / '.config/autostart').symlink_to(elsewhere)
+            with self.assertRaises(OSError):
+                install_reader.write_login_entry(home, sys.executable, 47841)
+            self.assertEqual(os.listdir(elsewhere), [])
 
     def test_login_entry_respects_a_switched_off_or_foreign_entry(self):
         with TemporaryDirectory() as temp:
@@ -117,20 +129,19 @@ class TrayLaunchTests(TestCase):
             self.assertIsNotNone(install_reader.write_login_entry(home, sys.executable, 47841))
             self.assertIn('--login', path.read_text())
 
-    def test_login_hands_the_tray_to_the_service_or_runs_it_here(self):
+    def test_the_login_supervisor_restarts_a_crash_and_stops_on_quit_lock_or_a_loop(self):
         sys.path.insert(0, str(install_reader.ROOT / 'linux'))
         import tray
-        with TemporaryDirectory() as temp:
-            unit = Path(temp) / 'nagi-tray.service'
-            calls = []
-            run = lambda command: (calls.append(command), 0)[1]
-            self.assertFalse(tray.start_supervised({'DISPLAY': ':0'}, run, unit))  # no unit: run here
-            unit.write_text('[Service]\n')
-            self.assertTrue(tray.start_supervised({'DISPLAY': ':0', 'HOME': '/x'}, run, unit))
-            self.assertEqual(calls, [['systemctl', '--user', 'import-environment', 'DISPLAY'], ['systemctl', '--user', 'start', 'nagi-tray.service']])
-            calls.clear()
-            self.assertTrue(tray.start_supervised({'INVOCATION_ID': 'x', 'DISPLAY': ':0'}, run, unit))  # GNOME autostart has one
-            self.assertFalse(tray.start_supervised({}, lambda command: 1, unit))  # no user manager
-            def missing(command):
-                raise OSError('no systemctl')
-            self.assertFalse(tray.start_supervised({}, missing, unit))
+        def run(codes, stopping=lambda: False):
+            seq = iter(codes)
+            waits = []
+            now = [0.0]
+            def sleep(seconds):
+                waits.append(seconds)
+                now[0] += seconds
+            result = tray.supervise(lambda: next(seq), sleep, lambda: now[0], stopping)
+            return result, len(waits)
+        self.assertEqual(run([1, -11, 0]), (0, 2))   # two crashes restarted, then Quit
+        self.assertEqual(run([2]), (2, 0))           # already running: nothing to do
+        self.assertEqual(run([1] * 9), (1, 4))       # five crashes inside a minute: give up
+        self.assertEqual(run([-15], stopping=lambda: True), (-15, 0))  # logout or SIGTERM

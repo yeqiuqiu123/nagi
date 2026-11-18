@@ -142,39 +142,45 @@ def read_state(origin, transport=None):
         return strict_json_loads(response.read(8*1024*1024+1),8*1024*1024,max_depth=160)
 
 
-SESSION_ENV=('DISPLAY','XAUTHORITY','WAYLAND_DISPLAY','XDG_SESSION_TYPE','XDG_CURRENT_DESKTOP','DBUS_SESSION_BUS_ADDRESS')
+RESTART_DELAY=3
+RESTART_WINDOW=60
+RESTART_LIMIT=5
 
 
-def start_supervised(env, run_command, unit_file):
-    """At login, hand the tray to the nagi-tray user service so a crash brings it back.
-    True when the service took it; False means run the tray here (no user manager, no
-    unit). The service itself never passes --login, so this can't recurse; INVOCATION_ID is no
-    guide, since GNOME's autostart apps inherit the session's."""
-    if not unit_file.exists():
-        return False
-    names=[name for name in SESSION_ENV if env.get(name)]
-    try:
-        if names:
-            run_command(['systemctl','--user','import-environment',*names])
-        return run_command(['systemctl','--user','start','nagi-tray.service'])==0
-    except (OSError, ValueError):
-        return False
+def supervise(spawn, sleep, clock, stopping):
+    """At login: run the tray as a child and start it again if it crashes. It lives inside the
+    desktop session, so logout ends it with everything else. Quit Nagi (0) and "already
+    running" (2) end it too, as does a crash loop: five crashes inside a minute."""
+    crashes=[]
+    while True:
+        code=spawn()
+        if code in (0,2) or stopping():
+            return code
+        now=clock()
+        crashes=[at for at in crashes if now-at<RESTART_WINDOW]+[now]
+        if len(crashes)>=RESTART_LIMIT:
+            return code
+        sleep(RESTART_DELAY)
 
 
 def main():
     parser=argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--port',type=int,default=47831)
-    parser.add_argument('--login',action='store_true',help='started by the login entry: prefer the user service')
+    parser.add_argument('--login',action='store_true',help='started by the login entry: restart the tray if it crashes')
     args=parser.parse_args()
     if args.login:
-        import os,subprocess
-        def run_command(command):
-            return subprocess.run(command,stdin=subprocess.DEVNULL,stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL,timeout=15).returncode
-        try:
-            if start_supervised(os.environ,run_command,Path.home()/'.config/systemd/user/nagi-tray.service'):
-                return 0
-        except subprocess.TimeoutExpired:
-            pass
+        import signal,subprocess,time
+        state={'child':None,'stopping':False}
+        def forward(signum,_frame):
+            state['stopping']=True
+            if state['child'] is not None and state['child'].poll() is None:
+                state['child'].send_signal(signum)
+        signal.signal(signal.SIGTERM,forward)
+        signal.signal(signal.SIGINT,forward)
+        def spawn():
+            state['child']=subprocess.Popen([sys.executable,'-B',str(Path(__file__).resolve()),'--port',str(args.port)],stdin=subprocess.DEVNULL)
+            return state['child'].wait()
+        return supervise(spawn,time.sleep,time.monotonic,lambda:state['stopping'])
     from notifications import run
     return run(args.port)
 

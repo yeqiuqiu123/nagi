@@ -50,7 +50,11 @@ LOGIN_ENTRY = '.config/autostart/local.nagi.tray.desktop'
 
 
 def desktop_quote(value):
-    return '"'+value.replace('\\','\\\\').replace('"','\\"').replace('`','\\`').replace('$','\\$').replace('%','%%')+'"'
+    """One Exec argument, in both layers of the Desktop Entry spec: the Exec quoting
+    (backslash before backslash, double quote, backtick and dollar, inside double quotes;
+    %% for %), then the key-file string escape (each backslash doubled)."""
+    exec_arg = '"' + value.replace('\\', '\\\\').replace('"', '\\"').replace('`', '\\`').replace('$', '\\$') + '"'
+    return exec_arg.replace('\\', '\\\\').replace('%', '%%')
 
 
 def login_entry_disabled(text):
@@ -67,27 +71,60 @@ def login_entry_disabled(text):
     return False
 
 
+def open_home_directory(home, relative):
+    """A descriptor for home/relative, walking one component at a time and never through a
+    symlink, so a symlinked ~/.config or ~/.config/autostart can't send a write elsewhere.
+    Desktops often make these folders group-writable, so only ownership is checked."""
+    fd = os.open(home, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+    try:
+        for part in Path(relative).parts:
+            try:
+                os.mkdir(part, 0o700, dir_fd=fd)
+            except FileExistsError:
+                pass
+            child = os.open(part, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=fd)
+            os.close(fd)
+            fd = child
+            if os.fstat(fd).st_uid != os.getuid():
+                raise ValueError('Installation paths must be yours')
+        return fd
+    except BaseException:
+        os.close(fd)
+        raise
+
+
 def write_login_entry(home, executable, port):
-    """One login entry on every desktop. `tray.py --login` hands the tray to the systemd
-    service when the session has a user manager, and runs it directly when not, so the
-    launcher is chosen at each login, not at install time."""
-    path = home / LOGIN_ENTRY
-    if path.exists() and not path.is_symlink():
-        text = path.read_text(errors='replace')
-        if 'linux/tray.py' not in text or login_entry_disabled(text):
-            return None  # someone else's file, or switched off: leave it
+    """Nagi's login entry runs `tray.py --login`: a small supervisor, living as long as the
+    desktop session, that restarts the tray after a crash. An entry that isn't Nagi's, or
+    that was switched off in [Desktop Entry], is left as it is."""
+    folder, name = os.path.split(LOGIN_ENTRY)
     command = [executable, '-B', str(ROOT / 'linux/tray.py'), '--port', str(port), '--login']
     body = ('[Desktop Entry]\nType=Application\nName=Nagi\nComment=What your agents are doing, at a glance\n'
             'Exec=' + ' '.join(map(desktop_quote, command)) + '\nTerminal=false\nNoDisplay=true\nX-GNOME-Autostart-enabled=true\n')
-    # Not a secret, and desktops often create ~/.config/autostart group-writable: write it
-    # without the private-path rule, but never through a symlink.
-    if home not in path.parents:
-        raise ValueError('Installation paths must be inside your home directory')
-    path.parent.mkdir(parents=True, exist_ok=True)
-    fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC | os.O_NOFOLLOW, 0o600)
-    with os.fdopen(fd, 'wb') as stream:
-        stream.write(body.encode())
-    return path
+    parent = open_home_directory(home, folder)
+    try:
+        try:
+            fd = os.open(name, os.O_RDONLY | os.O_NOFOLLOW, dir_fd=parent)
+        except FileNotFoundError:
+            pass
+        else:
+            with os.fdopen(fd, 'rb') as stream:
+                text = stream.read(65536).decode(errors='replace')
+            if 'linux/tray.py' not in text or login_entry_disabled(text):
+                return None
+        # Replace atomically beside it, never following a link.
+        temp = '.' + name + '.tmp'
+        try:
+            os.unlink(temp, dir_fd=parent)
+        except FileNotFoundError:
+            pass
+        fd = os.open(temp, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600, dir_fd=parent)
+        with os.fdopen(fd, 'wb') as stream:
+            stream.write(body.encode())
+        os.replace(temp, name, src_dir_fd=parent, dst_dir_fd=parent)
+        return home / LOGIN_ENTRY
+    finally:
+        os.close(parent)
 
 
 def install(platform, directory, port, executable, home):
@@ -119,17 +156,14 @@ def install(platform, directory, port, executable, home):
         target = home / '.config/systemd/user/nagi-reader.service'
         def quote(value):
             return '"' + value.replace('\\', '\\\\').replace('"', '\\"').replace('%', '%%').replace('\n', '\\n') + '"'
-        def exec_quote(value):
-            # systemd expands ${VAR} in command lines even inside quotes; $$ is a literal $.
+        def arg_quote(value):
+            # systemd expands ${VAR} in arguments even inside quotes ($$ is a literal $); the
+            # executable is looked up literally, so it keeps its $.
             return quote(value).replace('$', '$$')
         template = (ROOT / 'linux/nagi-reader.service.in').read_text()
-        body = template.replace('@COMMAND@', ' '.join(map(exec_quote, command))).replace('@DATA_ENV@', quote('NAGI_DATA_DIR=' + str(directory))).replace('@PATH_ENV@', quote('PATH=' + cli_path)).encode()
+        body = template.replace('@COMMAND@', ' '.join([quote(command[0]), *map(arg_quote, command[1:])])).replace('@DATA_ENV@', quote('NAGI_DATA_DIR=' + str(directory))).replace('@PATH_ENV@', quote('PATH=' + cli_path)).encode()
     write_private(target, body, home)
     if platform == 'linux':
-        # The tray, kept running for the desktop session: started at login, restarted after a crash.
-        tray_command = [executable, '-B', str(ROOT / 'linux/tray.py'), '--port', str(port)]
-        tray = (ROOT / 'linux/nagi-tray.service.in').read_text().replace('@COMMAND@', ' '.join(map(exec_quote, tray_command)))
-        write_private(home / '.config/systemd/user/nagi-tray.service', tray.encode(), home)
         write_login_entry(home, executable, port)
     if platform=='linux':
         # Stable notification identity: GNOME rejects unknown per-process app IDs.
