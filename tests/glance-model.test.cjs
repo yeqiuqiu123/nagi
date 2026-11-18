@@ -330,7 +330,12 @@ test('sources envelope: one source renders exactly as today; several stay source
   // One source: the very same view model as today's glance.
   const single = M.buildSources(env([read('legacy-t3', 'This computer', g.agents)]), { now: NOW });
   assert.equal(single.kind, 'single');
-  assert.deepEqual(JSON.parse(JSON.stringify(single.vm)), JSON.parse(JSON.stringify(M.build({ ...g, warnings: [] }, limits(), { now: NOW }))));
+  // The panel's composed view (dials, list, Ended, rail) is added on top of it, never in its place.
+  const { dials, dialNotes, list, endedAll, rail, notes, ...core } = JSON.parse(JSON.stringify(single.vm));
+  assert.deepEqual(core, JSON.parse(JSON.stringify(M.build({ ...g, warnings: [] }, limits(), { now: NOW }))));
+  assert.deepEqual(rail, []); // one source: no rail, no chips
+  assert.ok(dials.every((d) => d.source === null && !d.showSource));
+  assert.deepEqual(list.map((p) => p.title), ['P']);
 
   // Two sources, one failing: counts sum only the fresh one; the failing one keeps its own truth.
   const dated = { ...g.agents, status: 'last_known', checkedAt: at(4), reason: 'cannot_reach_t3', data: { ...g.agents.data, counts: { running: 7, waitingOnYou: 0, stuck: 0, ended: 0 } } };
@@ -438,4 +443,107 @@ test('a Cursor count that may repeat a local T3 stays beside the total, in the p
   // Without a local T3 there is nothing to repeat: Cursor counts in full.
   env.sources[0].source.placement = 'tailscale';
   assert.equal(M.buildSources(env, { now: NOW }).vm.hero.num, '2');
+});
+
+// ---- v3: dials, the status column, one list and the source rail ------------------------------
+test('dials: one ring per account window, lowest account first; the tick is the time left in a known window', () => {
+  const vm = M.buildSources({ version: 1, platform: 'linux', sources: [{ source: { id: 's', harness: 't3', label: 'This computer', placement: 'local' },
+    agents: glance([], { status: 'quiet' }).agents, limits: limits().providers, coverage: {}, warnings: [] }], settings: { stuckMinutes: 15, endedExpiryHours: 24 }, warnings: [] }, { now: NOW }).vm;
+  assert.deepEqual(vm.dials.map((d) => d.name), ['Codex 2', 'Codex 1', 'Claude 1']);
+  const [empty, codex, claude] = vm.dials;
+  assert.deepEqual(empty.cells.map((c) => [c.state, c.pct, c.w, c.d]), [['empty', 0, 'Weekly', 'Tue 00:05']]);
+  assert.equal(empty.label, 'Codex 2: empty until Tue 17 Nov 00:05.');
+  assert.deepEqual(codex.cells.map((c) => [c.state, c.pct, c.d]), [['value', 67, 'Sat 22:05']]);
+  // 40 of 168 hours are left in the week: the tick sits there, the arc at 67%.
+  assert.ok(Math.abs(codex.cells[0].timeLeft - 40 / 168) < 1e-9);
+  // Three windows stay three rings, never averaged; `Weekly · Fable` shortens to `Fable`.
+  assert.deepEqual(claude.cells.map((c) => [c.w, c.pct, c.d]), [['Weekly', 91, 'Sat 22:05'], ['Session', 96, '07:05'], ['Fable', 97, 'Sat 22:05']]);
+  assert.deepEqual(claude.rows.map((r) => [r.name, r.pct, r.date]), [['Weekly', 91, 'Sat 14 Nov 22:05'], ['Session', 96, 'today 07:05'], ['Weekly · Fable', 97, 'Sat 14 Nov 22:05']]);
+  assert.equal(claude.about, 'checked 06:03');
+  // A window whose length Nagi doesn't know, or a reset further off than the window, gets no tick.
+  assert.equal(M.timeLeft('other', NOW + 3600000, NOW), null);
+  assert.equal(M.timeLeft('five_hour', NOW + 9 * 3600000, NOW), null);
+  assert.equal(M.timeLeft('five_hour', NOW + 2.5 * 3600000, NOW), 0.5);
+});
+
+test('dials: a failed read is a dashed ring with its time, never a value; a dated 0 is not empty; low follows the alert level', () => {
+  const one = (providers, settings) => M.buildSources({ version: 1, platform: 'linux', sources: [{ source: { id: 's', harness: 't3', label: 'This computer', placement: 'local' },
+    agents: glance([], { status: 'quiet' }).agents, limits: providers, coverage: {}, warnings: [] }], settings: { stuckMinutes: 15, endedExpiryHours: 24, ...(settings || {}) }, warnings: [] }, { now: NOW }).vm.dials;
+  const failed = one(limits({ codex: { status: 'unavailable', attemptedAt: at(2), checkedAt: null, reason: 'probe_failed', warnings: [], data: null },
+    claude: { status: 'not_set_up', attemptedAt: at(0), checkedAt: null, reason: 'not_installed', warnings: [], data: null } }).providers);
+  assert.deepEqual(failed.map((d) => [d.name, d.cells[0].state, d.cells[0].pct, d.cells[0].timeLeft, d.cells[0].w, d.cells[0].d]),
+    [['Codex', 'failed', null, null, "couldn't check", 'tried 06:03'], ['Claude', 'absent', null, null, 'not set up', '']]);
+  assert.equal(failed[0].rows[0].date, "couldn't check · tried 06:03");
+  // A sign-in the owner can fix says so, short under the ring and in full in the detail.
+  const expired = one(limits({ claude: { status: 'unavailable', attemptedAt: at(1), checkedAt: null, reason: 'claude_login_expired', warnings: [], data: null } }).providers);
+  const claude = expired.find((d) => d.name === 'Claude');
+  assert.deepEqual([claude.cells[0].state, claude.cells[0].w, claude.rows[0].date], ['failed', 'sign in again', 'open Claude Code to sign in again']);
+  // A retained 0 is a dated 0%, grey, with the time it was read: never `empty`, never low.
+  const stale = limits(); stale.providers.codex.status = 'last_known';
+  const dated = one(stale.providers).find((d) => d.name === 'Codex 2').cells[0];
+  assert.deepEqual([dated.state, dated.pct, dated.d], ['dated', 0, 'as of 06:03']);
+  // Low is the owner's own alert level (10% unless they changed it); with the alert off, the default.
+  const low = (left, settings) => one(limits({ codex: { status: 'ok', attemptedAt: at(0), checkedAt: at(2), reason: null, warnings: [],
+    data: { accounts: [{ id: 'c', label: 'Codex 1', windows: [win('primary', 'Weekly', left, 40)] }] } } }).providers, settings).find((d) => d.name === 'Codex 1').cells[0].state;
+  assert.equal(low(10), 'low');
+  assert.equal(low(11), 'value');
+  assert.equal(low(25, { limitAlertPercent: 30 }), 'low');
+  assert.equal(low(10, { limitAlertPercent: 'off' }), 'low');
+});
+
+test('the status column: a healthy row says only its model and run time; exceptions speak; what needs you sorts first', () => {
+  const rows = [agent('Fresh', 'running', { active: 2, started: 7 }), agent('Quiet', 'running', { active: 6, started: 200 }),
+    agent('Stuck', 'running', { active: 17, stuck: true, liveness: 'inactive', started: 210 }),
+    agent('Asks', 'running', { active: 4, started: 41, waiting: { question: true, approval: false, blocking: true } }),
+    agent('Queued', 'queued', { started: 1 }), agent('Unknown', 'running', { active: 40, stuck: null, liveness: 'unknown' })];
+  const vm = M.build(glance([{ id: 'p', title: 'P', agents: rows }], { counts: { running: 5, waitingOnYou: 1, stuck: 1 } }), limits(), { now: NOW });
+  const by = Object.fromEntries(flat(vm).map((r) => [r.title, r]));
+  assert.deepEqual([by.Fresh.model, by.Fresh.run, by.Fresh.note], ['Sol', '7m', null]);
+  assert.deepEqual([by.Quiet.run, by.Quiet.note], ['3h 20m', { text: 'silent 6m', cls: 'quiet' }]);
+  assert.deepEqual(by.Stuck.note, { text: 'silent 17m', cls: 'stuck' });
+  assert.deepEqual(by.Asks.note, { text: 'asks you · 4m', cls: 'asks' });
+  assert.deepEqual([by.Queued.run, by.Queued.note], ['queued', null]);
+  assert.deepEqual(by.Unknown.note, { text: '40m ago', cls: 'quiet' }); // unknown liveness is never called silent
+  assert.deepEqual(vm.projects[0].rows.slice(0, 2).map((r) => r.title), ['Asks', 'Stuck']);
+  assert.equal(M.short(45000), '45s');
+  assert.equal(M.short(3 * 3600000), '3h');
+  assert.equal(M.short(52 * 3600000 + 60000), '2d 4h');
+});
+
+test('several sources: one list and one Ended line, a rail that names what cannot be read, chips only where they disambiguate', () => {
+  const tag = (id, harness, label) => ({ id, harness, label, placement: 'local' });
+  const live = glance([{ id: 'p', title: 'Alpha', agents: [agent('A', 'running', { started: 30 })] }],
+    { counts: { running: 1, ended: 3 }, ended: [{ id: 'p', title: 'Alpha', agents: [agent('Done', 'completed', { ended: 50 }), agent('Broke', 'failed', { ended: 40 }), agent('Halted', 'interrupted', { ended: 30 })] }] });
+  const asking = glance([{ id: 'q', title: 'Beta', agents: [agent('B', 'running', { started: 90, active: 4, waiting: { question: true, approval: false, blocking: true } })] }], { counts: { running: 1, waitingOnYou: 1 } });
+  const down = { ...live.agents, status: 'last_known', checkedAt: at(4), reason: 'cannot_reach_t3' };
+  const unseen = { ...glance([], { status: 'quiet' }).agents }; unseen.data = { ...unseen.data, warnings: ['partial_coverage'] };
+  const codexOnly = { codex: limits().providers.codex };
+  const silent = { status: 'unsupported', attemptedAt: at(0), checkedAt: null, reason: 'preferred_direct_source', warnings: [], data: null };
+  const env = { version: 1, platform: 'linux', settings: live.settings, warnings: [], sources: [
+    { source: tag('a', 't3', 'This computer'), agents: live.agents, limits: limits().providers, coverage: {}, warnings: [] },
+    { source: tag('b', 't3', 'Computer 2'), agents: down, limits: { codex: silent, claude: silent }, coverage: {}, warnings: [] },
+    { source: tag('c', 'claude', 'This computer'), agents: asking.agents, limits: {}, coverage: {}, warnings: [] },
+    { source: tag('d', 'codex', 'This computer'), agents: unseen, limits: codexOnly, coverage: {}, warnings: [] }] };
+  const vm = M.buildSources(env, { now: NOW }).vm;
+  // The row that asks you leads; the unreachable computer's dated rows come last.
+  assert.deepEqual(vm.list.map((p) => [p.title, p.source.chip, p.dated]), [['Beta', 'CC', false], ['Alpha', 'T3', false], ['Alpha', 'T3·2', true]]);
+  assert.equal(new Set(vm.list.map((p) => p.key)).size, 3);
+  // Rail: a count when read, words only for an exception.
+  assert.deepEqual(vm.rail.map((r) => [r.chip, r.state, r.count, r.words]),
+    [['T3', 'live', 1, ''], ['T3·2', 'down', null, "can't reach · 06:05"], ['CC', 'live', 1, ''], ['CX', 'waiting', null, 'no sessions yet']]);
+  assert.match(vm.rail[3].detail, /Nothing seen from Codex yet/);
+  assert.equal(vm.rail[1].title, 'T3 Code · Computer 2');
+  // Codex is reported by T3 and by Codex itself: those dials carry their source; Claude's doesn't.
+  const codex = vm.dials.filter((d) => d.provider === 'codex' && d.rank === 0);
+  assert.equal(codex.length, 4); // two accounts from each source, never merged
+  assert.ok(codex.every((d) => d.showSource));
+  assert.ok(vm.dials.filter((d) => d.provider === 'claude' && d.rank === 0).every((d) => !d.showSource));
+  assert.equal(new Set(vm.dials.map((d) => d.key)).size, vm.dials.length);
+  assert.match(codex[0].label, /read by (T3 Code|Codex)/);
+  // One Ended line: counts summed from each source's own, groups tagged with their source.
+  assert.equal(vm.endedAll.count, 6);
+  assert.deepEqual(vm.endedAll.totals, { completed: 2, failed: 2, stopped: 2 });
+  assert.equal(vm.endedAll.problems, '2 failed, 2 stopped');
+  assert.equal(vm.endedAll.span, '24 h');
+  assert.deepEqual(vm.endedAll.groups.map((g) => g.source.chip).sort(), ['T3', 'T3·2']);
 });
