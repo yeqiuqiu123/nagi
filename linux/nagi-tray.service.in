@@ -1,8 +1,12 @@
 [Unit]
 Description=Nagi tray and glance panel
+# Started by Nagi's login entry (tray.py --login), never by a target, so a desktop
+# without a systemd graphical session still gets exactly one tray.
 PartOf=graphical-session.target
-After=graphical-session.target nagi-reader.service
+After=nagi-reader.service
 Wants=nagi-reader.service
+StartLimitIntervalSec=60
+StartLimitBurst=5
 
 [Service]
 Type=simple
@@ -12,6 +16,3 @@ Restart=on-failure
 RestartSec=3
 RestartPreventExitStatus=2
 UMask=0077
-
-[Install]
-WantedBy=graphical-session.target

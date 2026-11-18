@@ -102,35 +102,20 @@ install_linux() {
             'If that does not help, see: systemctl --user status nagi-reader.service'
     ok 'Reader running this version'
 
-    # The tray runs as a user service tied to the desktop session: it starts at login and comes
-    # back after a crash. Desktops without a systemd graphical session keep an autostart entry.
-    local autostart="$HOME/.config/autostart/local.nagi.tray.desktop"
-    if systemctl --user is-active --quiet graphical-session.target 2>/dev/null; then
-        systemctl --user enable nagi-tray.service >/dev/null 2>&1 \
-            || stop 'The tray service could not be enabled.' 'See what happened with: systemctl --user status nagi-tray.service'
-        # An older install's autostart entry would start a second copy at login; switch it off.
-        if [[ -f "$autostart" ]] && ! grep -q '^Hidden=true' "$autostart"; then
-            printf 'Hidden=true\n' >> "$autostart"
-        fi
-        ok 'Nagi starts with your desktop and restarts if it crashes'
-        if (( LAUNCH )); then
-            # A tray started some other way keeps its single instance; this one then exits.
-            systemctl --user restart nagi-tray.service >/dev/null 2>&1 || true
-            ok 'Nagi is open: look for 凪 in the top bar'
-        fi
-    else
-        if [[ ! -e "$autostart" ]]; then
-            mkdir -p "$(dirname "$autostart")"
-            local exec_line
-            exec_line="$(printf '%q ' "$(command -v "$py")" -B "$ROOT/linux/tray.py" --port "$PORT")"
-            printf '[Desktop Entry]\nType=Application\nName=Nagi\nComment=What your agents are doing, at a glance\nExec=%s\nTerminal=false\nX-GNOME-Autostart-enabled=true\n' "${exec_line% }" > "$autostart"
-        fi
-        ok 'Nagi starts with your desktop'
-        if (( LAUNCH )); then
-            # A running tray keeps its single instance; a second start simply exits.
-            setsid -f "$py" -B "$ROOT/linux/tray.py" --port "$PORT" >/dev/null 2>&1 < /dev/null || true
-            ok 'Nagi is open: look for 凪 in the top bar'
-        fi
+    # One login entry starts the tray: it hands it to the nagi-tray user service (restarted after
+    # a crash) when the session has a systemd user manager, and runs it directly when not.
+    # install_reader.py wrote both; an entry you switched off is left switched off.
+    ok 'Nagi starts with your desktop'
+    if (( LAUNCH )); then
+        setsid -f "$py" -B "$ROOT/linux/tray.py" --port "$PORT" --login >/dev/null 2>&1 < /dev/null || true
+        sleep 2
+        ok 'Nagi is open: look for 凪 in the top bar'
+    fi
+    if ! systemctl --user is-active --quiet nagi-tray.service 2>/dev/null; then
+        # A tray started before this install keeps the single-instance lock, so the service
+        # can't take over yet. It does at the next login, or now after Quit Nagi and
+        # `systemctl --user start nagi-tray`.
+        note 'If Nagi was already open, it switches to the restart-on-crash service at your next login.'
     fi
 }
 

@@ -142,10 +142,39 @@ def read_state(origin, transport=None):
         return strict_json_loads(response.read(8*1024*1024+1),8*1024*1024,max_depth=160)
 
 
+SESSION_ENV=('DISPLAY','XAUTHORITY','WAYLAND_DISPLAY','XDG_SESSION_TYPE','XDG_CURRENT_DESKTOP','DBUS_SESSION_BUS_ADDRESS')
+
+
+def start_supervised(env, run_command, unit_file):
+    """At login, hand the tray to the nagi-tray user service so a crash brings it back.
+    True when the service took it; False means run the tray here (no user manager, no
+    unit). The service itself never passes --login, so this can't recurse; INVOCATION_ID is no
+    guide, since GNOME's autostart apps inherit the session's."""
+    if not unit_file.exists():
+        return False
+    names=[name for name in SESSION_ENV if env.get(name)]
+    try:
+        if names:
+            run_command(['systemctl','--user','import-environment',*names])
+        return run_command(['systemctl','--user','start','nagi-tray.service'])==0
+    except (OSError, ValueError):
+        return False
+
+
 def main():
     parser=argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--port',type=int,default=47831)
+    parser.add_argument('--login',action='store_true',help='started by the login entry: prefer the user service')
     args=parser.parse_args()
+    if args.login:
+        import os,subprocess
+        def run_command(command):
+            return subprocess.run(command,stdin=subprocess.DEVNULL,stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL,timeout=15).returncode
+        try:
+            if start_supervised(os.environ,run_command,Path.home()/'.config/systemd/user/nagi-tray.service'):
+                return 0
+        except subprocess.TimeoutExpired:
+            pass
     from notifications import run
     return run(args.port)
 

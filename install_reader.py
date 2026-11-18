@@ -46,6 +46,50 @@ def write_private(path, body, home):
         stream.write(body)
 
 
+LOGIN_ENTRY = '.config/autostart/local.nagi.tray.desktop'
+
+
+def desktop_quote(value):
+    return '"'+value.replace('\\','\\\\').replace('"','\\"').replace('`','\\`').replace('$','\\$').replace('%','%%')+'"'
+
+
+def login_entry_disabled(text):
+    """The owner switched Nagi's login entry off in [Desktop Entry]: keep that choice."""
+    group = None
+    for line in text.splitlines():
+        line = line.strip()
+        if line.startswith('[') and line.endswith(']'):
+            group = line
+        elif group == '[Desktop Entry]' and '=' in line:
+            key, value = (part.strip() for part in line.split('=', 1))
+            if (key == 'Hidden' and value == 'true') or (key == 'X-GNOME-Autostart-enabled' and value == 'false'):
+                return True
+    return False
+
+
+def write_login_entry(home, executable, port):
+    """One login entry on every desktop. `tray.py --login` hands the tray to the systemd
+    service when the session has a user manager, and runs it directly when not, so the
+    launcher is chosen at each login, not at install time."""
+    path = home / LOGIN_ENTRY
+    if path.exists() and not path.is_symlink():
+        text = path.read_text(errors='replace')
+        if 'linux/tray.py' not in text or login_entry_disabled(text):
+            return None  # someone else's file, or switched off: leave it
+    command = [executable, '-B', str(ROOT / 'linux/tray.py'), '--port', str(port), '--login']
+    body = ('[Desktop Entry]\nType=Application\nName=Nagi\nComment=What your agents are doing, at a glance\n'
+            'Exec=' + ' '.join(map(desktop_quote, command)) + '\nTerminal=false\nNoDisplay=true\nX-GNOME-Autostart-enabled=true\n')
+    # Not a secret, and desktops often create ~/.config/autostart group-writable: write it
+    # without the private-path rule, but never through a symlink.
+    if home not in path.parents:
+        raise ValueError('Installation paths must be inside your home directory')
+    path.parent.mkdir(parents=True, exist_ok=True)
+    fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC | os.O_NOFOLLOW, 0o600)
+    with os.fdopen(fd, 'wb') as stream:
+        stream.write(body.encode())
+    return path
+
+
 def install(platform, directory, port, executable, home):
     if platform not in ('linux', 'darwin') or not 1024 <= port <= 65535:
         raise ValueError('Expected Linux or macOS and a nonprivileged port')
@@ -75,18 +119,20 @@ def install(platform, directory, port, executable, home):
         target = home / '.config/systemd/user/nagi-reader.service'
         def quote(value):
             return '"' + value.replace('\\', '\\\\').replace('"', '\\"').replace('%', '%%').replace('\n', '\\n') + '"'
+        def exec_quote(value):
+            # systemd expands ${VAR} in command lines even inside quotes; $$ is a literal $.
+            return quote(value).replace('$', '$$')
         template = (ROOT / 'linux/nagi-reader.service.in').read_text()
-        body = template.replace('@COMMAND@', ' '.join(map(quote, command))).replace('@DATA_ENV@', quote('NAGI_DATA_DIR=' + str(directory))).replace('@PATH_ENV@', quote('PATH=' + cli_path)).encode()
+        body = template.replace('@COMMAND@', ' '.join(map(exec_quote, command))).replace('@DATA_ENV@', quote('NAGI_DATA_DIR=' + str(directory))).replace('@PATH_ENV@', quote('PATH=' + cli_path)).encode()
     write_private(target, body, home)
     if platform == 'linux':
         # The tray, kept running for the desktop session: started at login, restarted after a crash.
         tray_command = [executable, '-B', str(ROOT / 'linux/tray.py'), '--port', str(port)]
-        tray = (ROOT / 'linux/nagi-tray.service.in').read_text().replace('@COMMAND@', ' '.join(map(quote, tray_command)))
+        tray = (ROOT / 'linux/nagi-tray.service.in').read_text().replace('@COMMAND@', ' '.join(map(exec_quote, tray_command)))
         write_private(home / '.config/systemd/user/nagi-tray.service', tray.encode(), home)
+        write_login_entry(home, executable, port)
     if platform=='linux':
         # Stable notification identity: GNOME rejects unknown per-process app IDs.
-        def desktop_quote(value):
-            return '"'+value.replace('\\','\\\\').replace('"','\\"').replace('`','\\`').replace('$','\\$').replace('%','%%')+'"'
         desktop_command=[executable,'-B',str(ROOT/'linux/tray.py'),'--port',str(port)]
         desktop=(ROOT/'linux/local.nagi.notifications.desktop.in').read_text().replace('@COMMAND@',' '.join(map(desktop_quote,desktop_command)))
         write_private(home/'.local/share/applications/local.nagi.notifications.desktop',desktop.encode(),home)
