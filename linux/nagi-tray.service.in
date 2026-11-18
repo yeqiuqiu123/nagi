@@ -1,0 +1,17 @@
+[Unit]
+Description=Nagi tray and glance panel
+PartOf=graphical-session.target
+After=graphical-session.target nagi-reader.service
+Wants=nagi-reader.service
+
+[Service]
+Type=simple
+ExecStart=@COMMAND@
+# A crash restarts it; Quit Nagi (exit 0) and "already running" (exit 2) do not.
+Restart=on-failure
+RestartSec=3
+RestartPreventExitStatus=2
+UMask=0077
+
+[Install]
+WantedBy=graphical-session.target

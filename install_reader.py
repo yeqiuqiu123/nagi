@@ -78,6 +78,11 @@ def install(platform, directory, port, executable, home):
         template = (ROOT / 'linux/nagi-reader.service.in').read_text()
         body = template.replace('@COMMAND@', ' '.join(map(quote, command))).replace('@DATA_ENV@', quote('NAGI_DATA_DIR=' + str(directory))).replace('@PATH_ENV@', quote('PATH=' + cli_path)).encode()
     write_private(target, body, home)
+    if platform == 'linux':
+        # The tray, kept running for the desktop session: started at login, restarted after a crash.
+        tray_command = [executable, '-B', str(ROOT / 'linux/tray.py'), '--port', str(port)]
+        tray = (ROOT / 'linux/nagi-tray.service.in').read_text().replace('@COMMAND@', ' '.join(map(quote, tray_command)))
+        write_private(home / '.config/systemd/user/nagi-tray.service', tray.encode(), home)
     if platform=='linux':
         # Stable notification identity: GNOME rejects unknown per-process app IDs.
         def desktop_quote(value):

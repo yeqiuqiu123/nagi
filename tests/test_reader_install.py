@@ -34,6 +34,13 @@ class InstallerTests(TestCase):
                 else:
                     self.assertIn(b'--data-dir', first)
                     self.assertNotIn(b'gateway', first)
+                    tray = (home / '.config/systemd/user/nagi-tray.service').read_text()
+                    self.assertEqual(stat.S_IMODE((home / '.config/systemd/user/nagi-tray.service').stat().st_mode), 0o600)
+                    self.assertIn('linux/tray.py" "--port" "47841"', tray)
+                    self.assertIn('Restart=on-failure', tray)
+                    self.assertIn('RestartPreventExitStatus=2', tray)
+                    self.assertIn('WantedBy=graphical-session.target', tray)
+                    self.assertNotIn('@COMMAND@', tray)
 
     def test_installer_rejects_outside_home_and_symlinked_destinations(self):
         with TemporaryDirectory() as temp:

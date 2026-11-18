@@ -47,6 +47,8 @@ You need Python 3.11 or newer. On Linux, Nagi also needs GTK 3, WebKitGTK 4.1 an
 
 It sets up Nagi's reader in your home folder, starts it with your desktop and opens Nagi, which walks you through connecting your agent apps. Run it again any time: it keeps your data, owner key and connections, and asks before it uses sudo. `./install.sh --no-launch` installs without opening Nagi.
 
+On Linux the tray runs as the user service `nagi-tray.service`: it starts with your desktop session and restarts if it crashes, while **Quit Nagi** keeps it closed until your next login. `systemctl --user restart nagi-tray` reopens it. On X11 one click on 凪 opens the panel; elsewhere 凪 opens a menu with **Open Nagi**.
+
 On a Mac, `mac/setup-mac.sh` does the whole install: it builds `~/Applications/Nagi.app`
 (a menu-bar extra), starts the reader LaunchAgent, writes the T3 policy and adds a
 launch-at-login agent. `--t3-origin http://<tailnet 100.x>:3773` reads another
