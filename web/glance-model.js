@@ -281,7 +281,7 @@
       // One window is one dial wherever it was read: provider, window name and reset instant,
       // the key the reader already uses so an alert is never delivered twice.
       const cell = (w, name, full) => ({ state: w.empty ? 'empty' : w.dated ? 'dated' : w.low ? 'low' : 'value', pct: w.pct, timeLeft: w.timeLeft,
-        w: name, d: w.dated && w.asOf ? w.asOf : w.when, label: w.label,
+        w: name, d: w.when, asOf: w.dated ? w.asOf : '', label: w.label,
         key: [l.provider, full, Math.round(w.resets / 60000)].join('|'), fresh: !w.dated, checked: w.checked || 0,
         row: { name: full, pct: w.pct, empty: w.empty, date: w.date + (w.dated && w.asOf ? ' · ' + w.asOf : '') } });
       let cells;
@@ -303,6 +303,7 @@
   // A group's derived words: its detail rows, who read it, and its accessible name.
   function finishDial(g) {
     g.rows = g.cells.map((c) => c.row);
+    g.asOf = (g.cells.find((c) => c.asOf) || {}).asOf || '';
     const by = g.sources.length ? 'read by ' + g.sources.map((t) => t.name + (t.showLabel ? ' · ' + t.label : '')).join(' and ') : '';
     g.about = [by, g.checked != null ? 'checked ' + hm(g.checked) : ''].filter(Boolean).join(' · ');
     g.label = g.cells.map((c) => c.label).join('; ') + (g.about ? ', ' + g.about : '') + '.';
@@ -587,11 +588,15 @@
   // Source chips: a two-letter monogram per app, numbered when one app is connected twice.
   const MONOGRAMS = { t3: 'T3', claude: 'CC', codex: 'CX', cursor: 'CU', openbot: 'OB', pi: 'PI', omp: 'OM', hermes: 'HE', openclaw: 'OC', opencode: 'OP' };
   function sourceTags(sources) {
+    // This computer keeps the plain monogram; other connections of the same app are numbered
+    // from 2 in the order they were connected.
     const seen = {};
     return sources.map((s) => {
       const harness = s.source.harness;
-      const n = seen[harness] = (seen[harness] || 0) + 1;
-      const several = sources.filter((x) => x.source.harness === harness).length > 1;
+      const same = sources.filter((x) => x.source.harness === harness);
+      const several = same.length > 1;
+      const first = same.find((x) => x.source.label === 'This computer') || same.find((x) => x.source.placement === 'local') || same[0];
+      const n = s === first ? 1 : (seen[harness] = (seen[harness] || 1) + 1);
       const mono = MONOGRAMS[harness] || String(harnessName(harness)).slice(0, 2).toUpperCase();
       return { id: s.source.id, harness, mono, chip: several && n > 1 ? mono + '·' + n : mono, name: harnessName(harness), label: s.source.label,
         // A second connection of the same app is told apart by the owner's own label.

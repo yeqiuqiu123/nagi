@@ -481,8 +481,8 @@ test('dials: a failed read is a dashed ring with its time, never a value; a date
   assert.deepEqual([claude.cells[0].state, claude.cells[0].w, claude.rows[0].date], ['failed', 'sign in again', 'open Claude Code to sign in again']);
   // A retained 0 is a dated 0%, grey, with the time it was read: never `empty`, never low.
   const stale = limits(); stale.providers.codex.status = 'last_known';
-  const dated = one(stale.providers).find((d) => d.name === 'Codex 2').cells[0];
-  assert.deepEqual([dated.state, dated.pct, dated.d], ['dated', 0, 'as of 06:03']);
+  const dated = one(stale.providers).find((d) => d.name === 'Codex 2');
+  assert.deepEqual([dated.cells[0].state, dated.cells[0].pct, dated.cells[0].d, dated.asOf], ['dated', 0, 'Tue 00:05', 'as of 06:03']);
   // Low is the owner's own alert level (10% unless they changed it); with the alert off, the default.
   const low = (left, settings) => one(limits({ codex: { status: 'ok', attemptedAt: at(0), checkedAt: at(2), reason: null, warnings: [],
     data: { accounts: [{ id: 'c', label: 'Codex 1', windows: [win('primary', 'Weekly', left, 40)] }] } } }).providers, settings).find((d) => d.name === 'Codex 1').cells[0].state;
@@ -535,6 +535,9 @@ test('several sources: one list and one Ended line, a rail that names what canno
     [['T3', 'live', 1, ''], ['T3·2', 'down', null, "can't reach · 06:05"], ['CC', 'live', 1, ''], ['CX', 'waiting', null, 'no sessions yet']]);
   assert.match(vm.rail[3].detail, /Nothing seen from Codex yet/);
   assert.equal(vm.rail[1].title, 'T3 Code · Computer 2');
+  // This computer keeps the plain chip even when another computer was connected first.
+  const swapped = M.buildSources({ ...env, sources: [env.sources[1], env.sources[0], env.sources[2], env.sources[3]] }, { now: NOW }).vm.rail;
+  assert.deepEqual(swapped.slice(0, 2).map((r) => [r.chip, r.label]), [['T3·2', 'Computer 2'], ['T3', 'This computer']]);
   // T3 and Codex itself both read the same two Codex windows (same provider, window and reset
   // instant): each is one dial with both chips, never two rows. Claude was read by T3 only.
   const codex = vm.dials.filter((d) => d.provider === 'codex');

@@ -121,6 +121,8 @@
         h('span', { class: 'acct-name', text: g.name }),
         h('span', { class: 'cells' }, g.cells.map((c) => h('span', { class: 'cell ' + c.state },
           dial(c, g), h('span', { class: 'w', text: c.w }), h('span', { class: 'd', text: c.d || '\u00a0' })))),
+        // A value from an earlier check is grey and says when it was read, once for the group.
+        g.asOf && h('span', { class: 'as-of', text: g.asOf }),
         g.sources.length > 0 && h('span', { class: 'chips' }, g.sources.map(chip)));
       button.addEventListener('click', () => { openDial = open ? null : g.key; renderDials(vm); layout(); focusKey('dial:' + g.key); });
       return button;
@@ -131,14 +133,14 @@
     detail.hidden = !g;
     if (!g) { openDial = null; detail.replaceChildren(); }
     else {
-      detail.replaceChildren(
+      detail.replaceChildren(...[
         h('div', { class: 'dd-head' }, h('span', { class: 'dd-name', text: g.name }), g.about && h('span', { class: 'dd-about', text: g.about })),
         h('ul', { class: 'dd-rows' }, g.rows.map((r) => h('li', { class: 'dd-row' + (r.pct == null ? ' words' : '') },
           r.pct != null && h('span', { class: 'dd-w', text: r.name }),
           r.pct != null && h('span', { class: 'dd-p' }, h('b', { text: r.empty ? 'empty' : r.pct + '%' }), r.empty ? null : ' left'),
           h('span', { class: 'dd-d', text: r.pct != null && !r.empty ? 'resets ' + r.date : r.date })))),
         // The one mark that needs a word, said once, where the exact times are.
-        g.cells.some((c) => c.timeLeft != null) && h('p', { class: 'dd-key' }, h('i', { 'aria-hidden': 'true' }), 'The tick is the time left in the window. An arc past it will last.'));
+        g.cells.some((c) => c.timeLeft != null) && h('p', { class: 'dd-key' }, h('i', { 'aria-hidden': 'true' }), 'The tick is the time left in the window. An arc past it will last.')].filter(Boolean));
     }
     const note = $('dial-note');
     note.hidden = !(vm.dialNotes || []).length;
@@ -160,7 +162,8 @@
     } else if (r.state !== 'completed') {
       aside = h('span', { class: 'aside' }, h('span', { class: 'note quiet', text: r.meta[r.meta.length - 1] }));
     }
-    const link = h('a', { class: cls, href: r.href || null, 'data-provider': r.provider || null, 'data-key': 'row:' + r.id, 'data-id': r.id, 'data-start': r.started || 0, 'aria-label': r.label,
+    // A row its app can't open is not a tab stop, but the header's flags can still focus it.
+    const link = h('a', { class: cls, href: r.href || null, tabindex: r.href ? null : '-1', 'data-provider': r.provider || null, 'data-key': 'row:' + r.id, 'data-id': r.id, 'data-start': r.started || 0, 'aria-label': r.label,
       // How far through the stuck threshold its silence is; the node draws it as a draining disc.
       'data-f': r.silence ? r.silence.f.toFixed(3) : null },
       h('span', { class: 'node', 'aria-hidden': 'true' }),
@@ -303,9 +306,13 @@
   }
 
   // ---- Layout and geometry -----------------------------------------------------------------
+  // Positions in the scrolled content's own CSS pixels. Under a CSS zoom (the website's Mac
+  // density) rects come back scaled, so they are divided back; the native shells zoom the
+  // whole page, where the factor is 1.
   function rel(el, box) {
     const r = el.getBoundingClientRect();
-    return { x: r.left - box.left + r.width / 2, y: r.top - box.top + r.height / 2, top: r.top - box.top, bottom: r.bottom - box.top };
+    const k = inner.offsetWidth ? box.width / inner.offsetWidth : 1;
+    return { x: (r.left - box.left + r.width / 2) / k, y: (r.top - box.top + r.height / 2) / k, top: (r.top - box.top) / k, bottom: (r.bottom - box.top) / k };
   }
   const radius = (row) => (row.classList.contains('is-pending') ? 4.5 : 5.5);
 
@@ -314,7 +321,7 @@
   function drawPast() {
     const geo = $('geo-past');
     const box = inner.getBoundingClientRect();
-    geo.setAttribute('width', box.width); geo.setAttribute('height', inner.scrollHeight);
+    geo.setAttribute('width', inner.offsetWidth); geo.setAttribute('height', inner.scrollHeight);
     geo.replaceChildren();
     const branch = (d, row) => {
       const path = svg('path', { class: 'branch', d, 'data-start': row ? row.dataset.start : 0 });
