@@ -42,7 +42,7 @@ Captured with `tests/glance_preview.py` and Playwright WebKit before any change.
 - **A tile board.** Dials sit on the panel's own surface, in one band. No cards, no borders around a gauge, no glass, no shadows inside the panel. Mizu already ships the tile board; the owner rejected that look once.
 - **Colour as decoration.** Provider hue marks whose quota or model it is. Yellow means running low (quota or patience). Rose means it needs you. Nothing else is coloured.
 - **A drawn guess.** A failed read is a dashed ring with `?` and the time it tried. It never draws an arc. An empty window draws no arc and says `empty`. A window Nagi can't time (kind `other`) draws no tick.
-- **Averaging.** One dial per account window. Two sources that both report `Codex 1` stay two dials with two source chips: the API has no proof they are the same account (`design/sources-api.md`, "T3 overlap and alerts").
+- **Averaging.** One dial per account window. When two sources read the same window (same provider, window name and reset instant) it is still one dial, with both sources' chips under it and the fresher reading shown. Nothing is ever averaged.
 - **Sentences for normal.** No `just now`, no `all active`, no `left`, no `running` on a row, no per-source "nothing seen" paragraph.
 - **Motion for its own sake.** One orchestrated moment: on an open where something changed since the last look, each arc sweeps from where it was to where it is. Everything else changes on the next frame.
 - **Truncation.** Titles wrap. Type never drops below the floors in `design/v3/project-bar.md`.
@@ -68,6 +68,19 @@ Mobbin was wanted for menu-bar and widget flows; its MCP needs sign-in and was u
 - **Palette:** the violet-ink night and lavender-paper day already measured in `web/glance-v2.css`, with rose and yellow. The website is built on the same tokens. New tokens only for the dial track and the row washes.
 - **Type:** Inter (variable, optical size) for everything, tabular figures in every number, the Noto Serif 凪 as the one mark. No second face: the instruments carry the personality. I looked at a display numeral (Fontshare, Typewolf lists); at 15 px inside a 52 px ring a second face is noise, and GNOME's own UI face is Inter-based.
 - **Voice:** dates are absolute (`Fri 12:56`), durations are compact (`3h 29m`), exceptions are plain (`couldn't check`, `asks you`, `empty`).
+
+## The owner's second note, same day
+
+After the first build pass the owner sent the friend's whole screenshot and six more points. Each changed the build.
+
+| Their point | What v3 does |
+|---|---|
+| The same account appears twice, once per source. | One dial per window, merged on the reader's own alert key (provider, window name, reset instant); the sources that read it are chips under the dial. A failed read from another source stays its own dashed dial. |
+| Source and location headings repeat. | No source headings anywhere. A chip on the project heading, a rail of chips at the foot. |
+| Empty states are paragraphs. | A glyph and two to four words (`No sessions yet`, `Not connected here`, `Nothing ran in 24 h`); the sentence is the tooltip and opens beneath on a click or Enter. |
+| The ended line lists projects in prose. | A count, an outcome bar (done, failed, stopped as three shapes) and the failed and stopped counts. |
+| Rows carry a badge column, a trunk and text metadata. | One mark per row. The node is the trunk's stop, the provider's colour and the silence meter at once: a disc that drains toward the stuck threshold, an empty yellow ring when stuck. `silent 6m` is no longer written; `silent 17m` is, because stuck is an exception. Run time stays a number: a duration has no maximum to draw against. |
+| The panel scrolls with one agent running. | The friend's evening (three sources, four windows, one agent) is 351 px tall with no scroll. |
 
 ## Seeds for the five concepts
 

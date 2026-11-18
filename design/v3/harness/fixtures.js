@@ -29,7 +29,7 @@
       startedAt: ago(o.start), lastActivityAt: ago(last), endedAt: o.end != null ? ago(o.end) : null, endedAtSource: o.end != null ? 'latestRunCompletedAt' : null,
       waitingOnYou: o.asks ? { question: true, approval: false, blocking: true } : NO,
       stuck: running && !o.asks && last >= 15, liveness: running ? (last >= 15 ? 'inactive' : 'recent') : 'recent',
-      contextOnly: !!o.context, links: null, children: o.children || [] };
+      contextOnly: !!o.context, links: { desktop: 't3code://threads/demo/' + id, web: null }, children: o.children || [] };
   }
 
   const tree = (o) => [
@@ -78,7 +78,10 @@
     { secondaryWindows: [win('seven_day_fable', 'Weekly · Fable', 'weekly', fable, 2 * DAY + 11 * HOUR)] })]);
   const codex2 = (one, two) => ok([account('codex', 'Codex 1', [win('primary', 'Weekly', 'weekly', one, 3 * DAY + 12 * HOUR)]), account('codex_secondary', 'Codex 2', [win('primary', 'Weekly', 'weekly', two, 5 * DAY + 2 * HOUR)])]);
 
-  const source = (id, harness, label, a, limits, o) => ({ source: { id, harness, label, placement: (o && o.placement) || 'local' },
+  // Only T3 Code can open a thread; rows read from the other apps carry no link.
+  const unlink = (a) => { a.links = null; a.children.forEach(unlink); };
+  const source = (id, harness, label, a, limits, o) => { if (harness !== 't3' && a.data) [...a.data.projects, ...a.data.ended].forEach((p) => p.agents.forEach(unlink)); return sourceOf(id, harness, label, a, limits, o); };
+  const sourceOf = (id, harness, label, a, limits, o) => ({ source: { id, harness, label, placement: (o && o.placement) || 'local' },
     capabilities: { agents: true, lineage: true, limits: true, stuckDetection: true, asksYou: true, deepLinks: true }, agents: a, limits, coverage: {}, warnings: [] });
   const t3 = (a, limits) => source('t3-local', 't3', 'This computer', a, limits);
 

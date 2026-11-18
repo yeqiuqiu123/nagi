@@ -54,12 +54,17 @@ for (const scheme of ['dark', 'light']) {
     await page.waitForFunction(() => document.getElementById('panel').dataset.state !== 'loading', null, { timeout: 8000 }).catch(() => console.log('  never drew:', name));
     await page.waitForTimeout(350);
     if (action) { await action(page); await page.waitForTimeout(350); }
-    const height = fixed || await page.evaluate(() => window.__nagi.heights[window.__nagi.heights.length - 1] || 690);
-    // The Mac shell shows the same page at 0.85: its window is that much smaller.
-    const zoom = scene.includes('mac=1') ? 0.85 : 1;
-    await page.setViewportSize({ width: Math.round(400 * zoom), height: Math.round(height * zoom) });
+    // The Mac shell shows the same page at 0.85 (pageZoom). Here that is a CSS zoom, so the
+    // window is sized from what the zoomed content measures.
+    const mac = scene.includes('mac=1');
+    const height = fixed || await page.evaluate((zoomed) => (zoomed
+      ? Math.ceil(['pinned', 'scroll-inner', 'rail'].reduce((n, id) => n + document.getElementById(id).getBoundingClientRect().height, 0)) + 2
+      : window.__nagi.heights[window.__nagi.heights.length - 1] || 690), mac);
+    // Under a CSS zoom the page's 100vh is zoomed too, so the window is made taller by the
+    // same factor and the capture is clipped back to the panel.
+    await page.setViewportSize({ width: mac ? 340 : 400, height: mac ? Math.ceil(height / 0.85) : height });
     await page.waitForTimeout(250);
-    await page.screenshot({ path: path.join(outDir, name + '-' + (scheme === 'dark' ? 'night' : 'day') + '.png') });
+    await page.screenshot({ path: path.join(outDir, name + '-' + (scheme === 'dark' ? 'night' : 'day') + '.png'), ...(mac ? { clip: { x: 0, y: 0, width: 340, height } } : {}) });
     console.log(name, scheme, height);
     await context.close();
   }

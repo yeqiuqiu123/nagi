@@ -104,7 +104,9 @@ body { margin: 0; padding: 40px 32px 96px; background: var(--page); color: var(-
 .c1 .row.ctx::before { background: var(--bg); box-shadow: inset 0 0 0 2px var(--stroke); }
 .c1 .row.is-asks::before { background: var(--rose); }
 .c1 .d2 { --tx: 66px; }
-.c1 .lull { grid-column: 1 / -1; height: 3px; margin-top: 5px; border-radius: 2px; background: var(--amber); transform-origin: 0 50%; }
+.c1 .chips { display: inline-flex; gap: 4px; margin-top: 1px; }
+/* A node that has been silent for 60% of the stuck threshold: yellow, two fifths of the disc left. */
+.c1 .row.drain::before { background: conic-gradient(var(--amber) 0 40%, var(--bg) 40% 100%); box-shadow: inset 0 0 0 2px var(--amber); }
 .c1 .rail-v { position: absolute; left: 25px; top: 24px; bottom: 16px; width: 2px; border-radius: 1px; background: var(--stroke); }
 .c1 .elbow { position: absolute; left: 25px; width: 16px; height: 22px; border: solid var(--stroke); border-width: 0 0 2px 2px; border-radius: 0 0 0 10px; }
 .c1 .ended { display: flex; align-items: center; gap: 8px; margin-top: 8px; padding: 6px 16px 6px 44px; position: relative; font-weight: 500; color: var(--secondary); }

@@ -20,7 +20,7 @@
       <p>A band of dials, then a watch list with a status column.</p>
       <dl>
         <dt>Idea</dt><dd>Every limit window is a ring: the arc is what's left, the tick is how much of the window's time is left. Arc past the tick means it will last. Agents are a list whose right-hand column holds the model and run time; it stays grey unless something needs you.</dd>
-        <dt>Solves</dt><dd>Nine lines of limits become one row you compare by eye. Short titles take one line. Sources become chips.</dd>
+        <dt>Solves</dt><dd>Nine lines of limits become one row you compare by eye, and a window two sources read is drawn once. Short titles take one line. Sources become chips.</dd>
         <dt>Refuses</dt><dd>Tiles and cards around gauges, a drawn value for a failed read, sentences for normal states.</dd>
         <dt>You use it by</dt><dd>Looking. Selecting a dial opens that account's exact dates in place; a row opens its thread; the ended line expands.</dd>
         <dt>Risk</dt><dd>Six or more windows wrap to a second row of dials.</dd>
@@ -35,16 +35,16 @@
         <span class="gear"><svg viewBox="0 0 20 20"><circle cx="10" cy="10" r="2.6"/><path d="M10 2.2v2.4M10 15.4v2.4M2.2 10h2.4M15.4 10h2.4M4.5 4.5l1.7 1.7M13.8 13.8l1.7 1.7M4.5 15.5l1.7-1.7M13.8 6.2l1.7-1.7"/><circle cx="10" cy="10" r="5.4"/></svg></span>
       </div>
       <div class="dials">
-        <div class="acct"><span class="acct-name">Codex 1 <span class="chip t3">T3</span></span>
-          <div class="cells"><div class="cell"><span class="dial" data-pct="0" data-state="empty" data-t="0.5" data-pv="codex"></span><span class="w">Weekly</span><span class="d tn">Mon 21:58</span></div></div></div>
+        <div class="acct"><span class="acct-name">Codex 1</span>
+          <div class="cells"><div class="cell"><span class="dial" data-pct="0" data-state="empty" data-t="0.5" data-pv="codex"></span><span class="w">Weekly</span><span class="d tn">Mon 21:58</span></div></div><span class="chips"><span class="chip t3">T3</span><span class="chip cx">CX</span></span></div>
         <div class="acct"><span class="acct-name">Claude 1</span>
           <div class="cells">
             <div class="cell"><span class="dial" data-pct="9" data-state="low" data-t="0.34" data-pv="claude"></span><span class="w">Session</span><span class="d tn">20:56</span></div>
             <div class="cell"><span class="dial" data-pct="72" data-t="0.35" data-pv="claude"></span><span class="w">Weekly</span><span class="d tn">Fri 12:56</span></div>
             <div class="cell"><span class="dial" data-pct="95" data-t="0.35" data-pv="claude"></span><span class="w">Fable</span><span class="d tn">Fri 12:56</span></div>
-          </div></div>
-        <div class="acct"><span class="acct-name">Codex <span class="chip cx">CX</span></span>
-          <div class="cells"><div class="cell failed"><span class="dial" data-state="failed"></span><span class="w">couldn't check</span><span class="d tn">tried 18:35</span></div></div></div>
+          </div><span class="chips"><span class="chip cc">CC</span></span></div>
+        <div class="acct"><span class="acct-name">Claude</span>
+          <div class="cells"><div class="cell failed"><span class="dial" data-state="failed"></span><span class="w">couldn't check</span><span class="d tn">tried 18:35</span></div></div><span class="chips"><span class="chip t3">T3</span></span></div>
       </div>
       <div class="list">
         <div class="proj">
@@ -59,7 +59,7 @@
           <span class="elbow" style="left:25px;top:52px;height:30px;width:17px"></span>
           <div class="row d2" style="--nc:var(--pv-codex-node)"><span class="t">Resolve sync conflicts in the notes editor</span><span class="a tn"><span class="pv-codex">Sol</span> · 18m</span></div>
           <span class="elbow" style="left:25px;top:76px;height:56px;width:17px;border-radius:0 0 0 10px"></span>
-          <div class="row d2" style="--nc:var(--pv-claude-node)"><span class="t">Resume photo uploads after a dropped connection</span><span class="a tn"><span class="pv-claude">Opus</span> · 7m<span class="s" style="color:var(--amber-text);font-weight:420">silent 9m</span></span><span class="lull" style="transform:scaleX(.6)"></span></div>
+          <div class="row d2 drain"><span class="t">Resume photo uploads after a dropped connection</span><span class="a tn"><span class="pv-claude">Opus</span> · 7m</span></div>
         </div>
         <div class="ended"><b class="tn">15</b> ended <span class="obar"><i style="flex:12"></i><i class="f" style="flex:2"></i><i style="flex:1;background:var(--tertiary)"></i></span><span>2 failed</span><span class="r tn">24 h ›</span></div>
       </div>

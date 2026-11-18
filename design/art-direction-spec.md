@@ -1,5 +1,7 @@
 # Nagi art-direction and motion spec: the fused Now Line
 
+> **Superseded for the panel by v3 (18 Nov 2026).** The current direction, bar and measurements are in `design/v3/`. This file is kept as the record of v2; its tray, shell and sheet-motion decisions still hold.
+
 Opus 5.5 (art director, fresh reader), 13 Nov 2026. Sources: the creative direction, the owner's pick, the binding `project-bar.md`, the explorer's prototypes and `api-contract.md`. Every value below was tried in a prototype unless it is marked **untested**. Agent titles never appear in this file.
 
 **Decision.** **Layout A, Inter with Inter Display for the numeral, motion variant a for travel and branches, tray V1 `凪 3`.** I agree with the explorer on all four.

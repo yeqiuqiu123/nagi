@@ -25,7 +25,7 @@ Four questions, in this order.
 
 1. **Soundings: build it.**
    - **Strength:** the ring with a time tick answers two questions in one mark: how much is left, and whether it lasts until the reset. Lowest-first order puts the problem in the top-left corner. The status column on agent rows uses the empty width and stays grey unless something needs you.
-   - **Weakness:** a setup with six or more windows needs a second row of dials (about 109 px). Accepted: it is still shorter than the table it replaces, and nothing is hidden behind a scroll.
+   - **Weakness:** a setup with six or more dials needs a second row (about 110 to 130 px). Accepted: it is still shorter than the table it replaces, and nothing is hidden behind a scroll.
    - **Kept honest by:** exact dates one click away on every dial, and in every accessible name.
 2. **Ledger: no, but take two parts.**
    - **Take:** the right-aligned value column, and the idea of a time tick on a meter.
@@ -39,8 +39,12 @@ Four questions, in this order.
    - **Why:** it hides agent names behind a click, the failure the first project bar was written to beat, and it summarises windows that must stay separate.
    - **Keep:** its promotion rule. In the chosen concept, the row that asks you sorts to the top of the list.
 
-## What changes from the mock-up when built
+## What changed between the board and the build
 
-- **A source chip sits beside an account name only when two sources report the same provider.** Otherwise the source is in the dial's detail and its accessible name. This keeps most captions to a name.
-- **The lineage branches are drawn from the real parent node,** as today; the mock-up approximates them with CSS.
-- **Selecting a dial opens that account's exact lines in place** (window, percent left, full reset date, when it was checked, which app read it). The mock-up does not show this state; `design/v3/shots/` does.
+The board was drawn before the owner's second note; the Soundings mock-up on it has been brought up to date, and these are the differences from the first drawing.
+
+- **One dial per window, across sources.** The same window read by two sources is one dial; the chips for the sources that read it sit under the dial, as in the friend's sketch. Chips in the caption made six-window setups wrap; under the dial they don't.
+- **Silence moved from a stroke under the row to the row's own node,** a disc that drains toward the stuck threshold. One mark instead of three (node, stroke, `silent 6m`).
+- **A stuck row is washed in yellow,** as a row that asks you is washed in rose.
+- **The lineage branches are drawn from the real parent node,** in SVG; the mock-up approximates them with CSS.
+- **Selecting a dial opens that account's exact lines in place** (window, percent left, full reset date, when it was checked, which apps read it). `design/v3/shots/dial-detail-*.png` shows it.
