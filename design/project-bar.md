@@ -1,5 +1,7 @@
 # Nagi project bar (Fable 5.2, creative call 4 of 5, 13 Nov 2026)
 
+> **Superseded for the panel by `design/v3/project-bar.md` (18 Nov 2026).** Kept as the record of v2.
+
 **Brief:** the product agreement (12 Nov) plus the owner's pick: "i like now line and lineage and lull but we should really up visibility and readability". **Device:** Linux tray panel, 400×690, WebKitGTK.
 
 ## How the three ideas combine

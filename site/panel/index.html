@@ -19,16 +19,16 @@
 <body>
 <main class="panel" id="panel" aria-label="Nagi glance" data-state="loading">
   <div class="pinned" id="pinned">
-    <svg class="geo" id="geo-top" aria-hidden="true"></svg>
     <header class="top">
-      <span class="mark"><span class="kanji" lang="ja">凪</span><span class="word-mark">nagi</span></span>
+      <span class="kanji" lang="ja" aria-hidden="true">凪</span>
+      <div class="status" id="status" role="status"></div>
+      <div class="flags" id="flags"></div>
       <button class="gear" id="gear" type="button" aria-label="Settings" aria-haspopup="dialog"><svg viewBox="0 0 20 20" aria-hidden="true"><circle cx="10" cy="10" r="2.6"/><path d="M10 2.2v2.4M10 15.4v2.4M2.2 10h2.4M15.4 10h2.4M4.5 4.5l1.7 1.7M13.8 13.8l1.7 1.7M4.5 15.5l1.7-1.7M13.8 6.2l1.7-1.7"/><circle cx="10" cy="10" r="5.4"/></svg></button>
     </header>
-    <section class="future" aria-label="Limits"><ul class="limits" id="limits" aria-label="Limits, lowest first"></ul></section>
-    <div class="now" id="now">
-      <div class="hero" id="hero"></div>
-      <div class="nowline" id="nowline" aria-hidden="true"><span class="nowdot" id="nowdot"></span></div>
-    </div>
+    <p class="status-sub" id="status-sub" hidden></p>
+    <section class="dials" id="dials" aria-label="Limits, lowest first" hidden></section>
+    <div class="dial-detail" id="dial-detail" hidden></div>
+    <p class="dial-note" id="dial-note" hidden></p>
   </div>
   <div class="scroll" id="scroll">
     <div class="scroll-inner" id="scroll-inner">
@@ -37,34 +37,41 @@
       <div class="ended" id="ended" hidden></div>
     </div>
   </div>
+  <footer class="rail" id="rail" aria-label="Sources" hidden></footer>
   <div class="sheet-layer" id="sheet-layer" hidden>
     <div class="scrim" aria-hidden="true"></div>
     <form class="sheet" id="sheet" role="dialog" aria-modal="true" aria-labelledby="sheet-title" aria-describedby="sheet-lede" novalidate>
       <h2 id="sheet-title">Settings</h2>
       <p class="sheet-lede" id="sheet-lede">Saved on this computer only.</p>
       <p class="sheet-error" id="sheet-error" role="alert" hidden></p>
-      <div class="field">
-        <label for="stuck-minutes">Stuck after</label>
-        <div class="number-field"><input id="stuck-minutes" name="stuckMinutes" type="text" inputmode="numeric" autocomplete="off" min="5" max="120" value="15" aria-describedby="stuck-help stuck-clamped"><span class="unit">minutes</span></div>
-        <p class="help" id="stuck-help">A running agent that stays silent this long is marked stuck, and you get one notification. 5 to 120 minutes.</p>
-        <p class="clamped" id="stuck-clamped" hidden></p>
+      <div class="group">
+        <div class="field">
+          <label for="stuck-minutes">Stuck after</label>
+          <div class="number-field"><input id="stuck-minutes" name="stuckMinutes" type="text" inputmode="numeric" autocomplete="off" min="5" max="120" value="15" aria-describedby="stuck-help stuck-clamped"><span class="unit">minutes</span></div>
+          <p class="help" id="stuck-help">A running agent silent this long is marked stuck, and you get one notification. 5 to 120.</p>
+          <p class="clamped" id="stuck-clamped" hidden></p>
+        </div>
+        <div class="field">
+          <label for="ended-hours">Clear ended after</label>
+          <div class="number-field"><input id="ended-hours" name="endedExpiryHours" type="text" inputmode="numeric" autocomplete="off" min="1" max="168" value="24" aria-describedby="ended-help ended-clamped"><span class="unit">hours</span></div>
+          <p class="help" id="ended-help">Finished, failed and stopped threads stay in the ended line this long. 1 to 168.</p>
+          <p class="clamped" id="ended-clamped" hidden></p>
+        </div>
       </div>
-      <div class="field">
-        <label for="ended-hours">Clear ended after</label>
-        <div class="number-field"><input id="ended-hours" name="endedExpiryHours" type="text" inputmode="numeric" autocomplete="off" min="1" max="168" value="24" aria-describedby="ended-help ended-clamped"><span class="unit">hours</span></div>
-        <p class="help" id="ended-help">Threads that completed, failed or stopped stay in the Ended line this long, then drop out of the glance. 1 to 168 hours.</p>
-        <p class="clamped" id="ended-clamped" hidden></p>
+      <div class="group">
+        <div class="field">
+          <span class="check-label"><input type="checkbox" role="switch" id="alert-on" name="limitAlertOn" aria-describedby="alert-help"><label for="alert-on">Low-limit alert</label></span>
+          <div class="number-field"><input id="alert-percent" name="limitAlertPercent" type="text" inputmode="numeric" autocomplete="off" min="1" max="50" value="10" aria-label="Low-limit alert at, percent left" aria-describedby="alert-help alert-clamped"><span class="unit">% left</span></div>
+          <p class="help" id="alert-help">One notification per limit window when it drops to this or below, until it resets. Its dial turns yellow at the same level. 1 to 50.</p>
+          <p class="clamped" id="alert-clamped" hidden></p>
+        </div>
       </div>
-      <div class="field">
-        <span class="check-label"><input type="checkbox" id="alert-on" name="limitAlertOn" aria-describedby="alert-help"><label for="alert-on">Low-limit alert at</label></span>
-        <div class="number-field"><input id="alert-percent" name="limitAlertPercent" type="text" inputmode="numeric" autocomplete="off" min="1" max="50" value="10" aria-label="Low-limit alert at, percent left" aria-describedby="alert-help alert-clamped"><span class="unit">% left</span></div>
-        <p class="help" id="alert-help">One notification for each limit window when what's left drops to this or below, until that window resets. 1 to 50%.</p>
-        <p class="clamped" id="alert-clamped" hidden></p>
-      </div>
-      <div class="field sources-field">
-        <span class="field-label" id="sources-label">Sources</span>
-        <button type="button" class="btn" id="manage-sources" aria-describedby="sources-label sources-help">Manage…</button>
-        <p class="help" id="sources-help">The agent apps and computers Nagi reads.</p>
+      <div class="group">
+        <div class="field sources-field">
+          <span class="field-label" id="sources-label">Sources</span>
+          <button type="button" class="btn" id="manage-sources" aria-describedby="sources-label sources-help">Manage…</button>
+          <p class="help" id="sources-help">The agent apps and computers Nagi reads.</p>
+        </div>
       </div>
       <div class="sheet-actions">
         <button type="button" class="btn" id="restore">Restore defaults</button>

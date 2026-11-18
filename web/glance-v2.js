@@ -1,6 +1,7 @@
 'use strict';
-// Nagi glance panel: renders the view model, draws the trunk, branches and silence
-// strokes, runs the gated open motion and the settings sheet. Read-only.
+// Nagi glance panel (v3, "Soundings"): renders the view model as a band of dials, a watch
+// list with a status column and drawn lineage, one Ended line and a source rail; runs the
+// gated open motion and the settings sheet. Read-only.
 (() => {
   const M = window.NagiModel;
   const $ = (id) => document.getElementById(id);
@@ -9,18 +10,25 @@
   const MIN_H = 320;
   const POLL_MS = 20000;
   const LAST_OPEN = 'nagi-last-open';
+  const LAST_DIALS = 'nagi-dials';
   const R = 10; // branch elbow radius
+  const GAP = 3; // air between a line's end and the node it meets
+  const DIAL_R = 22; const DIAL_C = 2 * Math.PI * DIAL_R;
   const Motion = window.NagiMotion;
   const reduced = Motion.reduced;
   const panel = $('panel'); const scroll = $('scroll'); const inner = $('scroll-inner');
-  const nowline = $('nowline'); const sheetLayer = $('sheet-layer');
+  const sheetLayer = $('sheet-layer');
 
   let readerFailedAt = null;
-  let firstRender = true; let opening = false; const endedOpenBy = new Map(); let lastSilence = new Map();
+  let firstRender = true; let opening = false;
+  let endedOpen = false; let openDial = null; let openSource = null;
+  // Which detail opened last, so Esc closes that one first and returns focus to its trigger.
+  let lastOpened = null;
   let envelope = null; let view = null;
-  let running = []; let sheet = null;
-  let lastOpen = null;
+  let sheet = null;
+  let lastOpen = null; let lastDials = null;
   try { const v = Number(localStorage.getItem(LAST_OPEN)); if (Number.isFinite(v) && v > 0) lastOpen = v; } catch {}
+  try { const v = JSON.parse(localStorage.getItem(LAST_DIALS) || 'null'); if (v && typeof v === 'object') lastDials = v; } catch {}
 
   const native = (message) => { try { window.webkit.messageHandlers.nagiPanel.postMessage(message); } catch {} };
 
@@ -37,69 +45,138 @@
   }
   const sep = () => h('span', { class: 'sep', text: ' · ' });
   const svg = (tag, attrs) => { const el = document.createElementNS(SVGNS, tag); for (const [k, v] of Object.entries(attrs)) el.setAttribute(k, v); return el; };
+  const chevron = () => { const s = svg('svg', { class: 'chev', viewBox: '0 0 12 12', 'aria-hidden': 'true' }); s.append(svg('path', { d: 'M4.5 2.5 8 6l-3.5 3.5' })); return s; };
+  // A source chip: the app's monogram, its full name as the tooltip.
+  const chip = (tag) => h('span', { class: 'chip hx-' + tag.harness, title: tag.name + ' · ' + tag.label, text: tag.chip });
 
-  // ---- Rendering --------------------------------------------------------
-  function renderLimits(vm) {
-    const list = $('limits');
-    // Every line reads name, % left, date; an account with several windows heads its own lines.
-    const pct = (l) => (l.pct == null ? (l.head ? '' : '—') : null);
-    const cells = (l) => [
-      h('span', { class: 'lim-name', text: l.name }),
-      pct(l) != null ? h('span', { class: 'lim-pct', text: pct(l) })
-        : h('span', { class: 'lim-pct' }, h('b', { text: l.empty ? 'empty' : l.pct + '%' }), l.empty ? null : ' left'),
-      // A date stamp never breaks mid-phrase.
-      h('span', { class: 'lim-date' }, l.date, l.stamp ? h('span', { class: 'nowrap', text: (l.date ? ' · ' : '') + l.stamp }) : null)];
-    const lines = (items, note) => [...items.flatMap((l) => [
-      h('li', { class: 'lim' + (l.head ? ' head' : '') + (l.pct == null && !l.head ? ' none' : '') + (l.empty ? ' empty' : ''), 'data-node': 'limit', 'aria-label': l.label }, cells(l)),
-      ...l.subs.map((s) => h('li', { class: 'lim sub' + (s.empty ? ' empty' : ''), 'aria-label': s.label }, cells(s)))]),
-    ...(note ? [h('li', { class: 'lim-note', text: note })] : [])];
-    // Several sources: each source's own account lines under its own name, never merged.
-    list.replaceChildren(...(vm.limitGroups ? vm.limitGroups.flatMap((g) => [h('li', { class: 'lim-source', text: g.label }), ...lines(g.lines, g.note)])
-      : lines(vm.limits, vm.limitNote)));
-  }
-
-  function renderHero(vm) {
+  // ---- Header: the count, and only what needs saying ---------------------------------
+  function renderStatus(vm) {
     const hero = vm.hero;
-    const left = h('div', { class: 'hero-left' }, h('span', { class: 'num' + (hero.quiet ? ' quiet' : ''), text: hero.num }), hero.word && h('span', { class: 'run-word', text: hero.word }), h('span', { class: 'bl', 'aria-hidden': 'true' }));
-    const right = h('div', { class: 'hero-right' });
-    if (hero.time) right.append(h('span', { class: 'hero-time', text: hero.time }));
-    if (hero.alert) right.append(h('span', { class: 'hero-alert' + (hero.calm ? ' calm' : ''), text: hero.alert }));
-    if (hero.words.length) {
-      const words = h('span', { class: 'hero-words' });
-      hero.words.forEach((w, i) => { if (i) words.append(sep()); words.append(h('span', { class: 'hero-word ' + w.cls, 'data-target': w.target, text: w.text })); });
-      right.append(words);
+    const kids = [];
+    if (hero.quiet) kids.push(h('span', { class: 'headline says' + (hero.calm ? ' calm' : ''), text: hero.alert }));
+    else if (hero.idle) kids.push(h('span', { class: 'headline says calm', text: 'Nothing running' }), hero.since && h('span', { class: 'since', text: 'since ' + hero.since }));
+    else kids.push(h('span', { class: 'headline' + (hero.dim ? ' dim' : '') }, h('b', { class: 'num', text: hero.num }), ' ' + hero.word));
+    const box = $('status');
+    box.replaceChildren(...kids.filter(Boolean));
+    box.setAttribute('aria-label', vm.heroLabel);
+    // What needs you: each is a button that brings its row into view.
+    const flags = [];
+    if (!hero.quiet && hero.alert) flags.push(h('span', { class: 'flag alert', text: hero.alert }));
+    hero.words.forEach((w) => {
+      const flag = h('button', { type: 'button', class: 'flag ' + w.cls, 'data-key': 'word:' + w.target, text: w.text });
+      flag.addEventListener('click', () => {
+        const row = document.querySelector('#past .row.is-' + w.target);
+        if (!row) return;
+        reveal(row.closest('.project').querySelector('.proj-head'), row);
+        row.focus({ preventScroll: true });
+      });
+      flags.push(flag);
+    });
+    // Sources that can't be reached: one short flag; it opens the rail's own words.
+    if (vm.unread) {
+      const down = (vm.rail || []).find((r) => r.state === 'down');
+      const flag = h('button', { type: 'button', class: 'flag quiet', 'data-key': 'word:down', text: vm.unread + (vm.unread === 1 ? ' source down' : ' sources down') });
+      flag.addEventListener('click', () => { openSource = down.id; lastOpened = 'src'; renderRail(vm); layout(); focusKey('src:' + down.id); });
+      flags.push(flag);
     }
-    hero.subs.forEach((s) => right.append(h('span', { class: 'hero-sub', text: s })));
-    const box = $('hero');
-    box.replaceChildren(left, right);
-    box.classList.toggle('dim', hero.dim);
-    $('now').setAttribute('aria-label', vm.heroLabel);
-    $('now').setAttribute('role', 'status');
+    $('flags').replaceChildren(...flags);
+    // A second line only for an exception: what failed and when, or what the count leaves out.
+    const subs = hero.fine ? [] : hero.subs.filter((t) => !t.startsWith('nothing running since') && !/sources can't be read/.test(t));
+    const sub = $('status-sub');
+    sub.hidden = !subs.length;
+    sub.textContent = subs.join(' · ');
   }
 
-  function rowEl(r, project) {
+  // ---- Dials: one ring per limit window ------------------------------------------------
+  // The arc is what's left; the tick is how much of the window's time is left. A failed read
+  // is a dashed ring with no arc; an empty window says `empty`; a dated value is grey.
+  function dial(cell, group) {
+    const drawn = (cell.state === 'value' || cell.state === 'low' || cell.state === 'dated') && cell.pct > 0;
+    const s = svg('svg', { viewBox: '0 0 50 50', 'aria-hidden': 'true' });
+    s.append(svg('circle', { class: 'track', cx: 25, cy: 25, r: DIAL_R }));
+    if (drawn) {
+      const arc = svg('circle', { class: 'arc', cx: 25, cy: 25, r: DIAL_R, transform: 'rotate(-90 25 25)',
+        'stroke-dasharray': (DIAL_C * cell.pct / 100).toFixed(2) + ' ' + DIAL_C.toFixed(2) });
+      arc.dataset.key = group.key + ':' + cell.w; arc.dataset.pct = cell.pct;
+      s.append(arc);
+    }
+    if (cell.timeLeft != null) {
+      const a = cell.timeLeft * 2 * Math.PI; const dx = Math.sin(a); const dy = -Math.cos(a);
+      const at = (r) => ({ x: (25 + dx * r).toFixed(2), y: (25 + dy * r).toFixed(2) });
+      const from = at(DIAL_R - 1); const to = at(DIAL_R + 6.5);
+      s.append(svg('line', { class: 'tick-halo', x1: from.x, y1: from.y, x2: to.x, y2: to.y }));
+      s.append(svg('line', { class: 'tick', x1: from.x, y1: from.y, x2: to.x, y2: to.y }));
+    }
+    const val = cell.pct != null && cell.state !== 'empty' ? h('span', { class: 'val' }, h('b', { text: String(cell.pct) }), h('small', { text: '%' }))
+      : h('span', { class: 'val word', text: cell.state === 'empty' ? 'empty' : cell.state === 'failed' ? '?' : cell.state === 'checking' ? '…' : '—' });
+    return h('span', { class: 'dial', 'data-pv': group.provider }, s, val);
+  }
+
+  function renderDials(vm) {
+    const groups = vm.dials || [];
+    const box = $('dials');
+    box.hidden = !groups.length;
+    box.replaceChildren(...groups.map((g) => {
+      const open = openDial === g.key;
+      // With several sources, the chips under a group say which of them read it.
+      const button = h('button', { type: 'button', class: 'acct' + (open ? ' is-open' : ''), 'data-key': 'dial:' + g.key, 'aria-expanded': String(open), 'aria-controls': 'dial-detail', 'aria-label': g.label },
+        h('span', { class: 'acct-name', text: g.name }),
+        h('span', { class: 'cells' }, g.cells.map((c) => h('span', { class: 'cell ' + c.state },
+          dial(c, g), h('span', { class: 'w', text: c.w }), h('span', { class: 'd', text: c.d || '\u00a0' })))),
+        // A value from an earlier check is grey and says when it was read, once for the group.
+        g.asOf && h('span', { class: 'as-of', text: g.asOf }),
+        g.sources.length > 0 && h('span', { class: 'chips' }, g.sources.map(chip)));
+      button.addEventListener('click', () => { openDial = open ? null : g.key; if (!open) lastOpened = 'dial'; renderDials(vm); layout(); focusKey('dial:' + g.key); });
+      return button;
+    }));
+    // The exact lines for the chosen account: each window, its percent, its full reset date.
+    const g = groups.find((d) => d.key === openDial);
+    const detail = $('dial-detail');
+    detail.hidden = !g;
+    if (!g) { openDial = null; detail.replaceChildren(); }
+    else {
+      detail.replaceChildren(...[
+        h('div', { class: 'dd-head' }, h('span', { class: 'dd-name', text: g.name }), g.about && h('span', { class: 'dd-about', text: g.about })),
+        h('ul', { class: 'dd-rows' }, g.rows.map((r) => h('li', { class: 'dd-row' + (r.pct == null ? ' words' : '') },
+          r.pct != null && h('span', { class: 'dd-w', text: r.name }),
+          r.pct != null && h('span', { class: 'dd-p' }, h('b', { text: r.empty ? 'empty' : r.pct + '%' }), r.empty ? null : ' left'),
+          h('span', { class: 'dd-d', text: r.pct != null && !r.empty ? 'resets ' + r.date : r.date })))),
+        // The one mark that needs a word, said once, where the exact times are.
+        g.cells.some((c) => c.timeLeft != null) && h('p', { class: 'dd-key' }, h('i', { 'aria-hidden': 'true' }), 'The tick is the time left in the window. An arc past it will last.')].filter(Boolean));
+    }
+    const note = $('dial-note');
+    note.hidden = !(vm.dialNotes || []).length;
+    note.textContent = (vm.dialNotes || []).join(' ');
+  }
+
+  // ---- The watch list ---------------------------------------------------------------------
+  function rowEl(r) {
     const depth = Math.min(r.depth, 3);
-    const cls = 'row ' + r.kind + (r.asks ? ' is-asks' : '') + (r.stuck ? ' is-stuck' : '') + (r.isNew ? ' is-new' : '') + (r.pending ? ' is-pending' : '');
-    const meta = h('span', { class: 'meta' });
-    if (r.stateWord) meta.append(h('span', { class: 'state ' + r.stateWord.cls, text: r.stateWord.text }), sep());
-    // The model word carries its provider's brand colour; the rest of the meta stays neutral.
-    r.meta.forEach((m, i) => { if (i) meta.append(sep()); meta.append(i === 0 ? h('span', { class: 'model' + (r.provider ? ' pv-' + r.provider : ''), text: m }) : m); });
-    const link = h('a', { class: cls, href: r.href || null, 'data-provider': r.provider || null, 'data-key': 'row:' + r.id, 'data-id': r.id, 'data-start': r.started || 0, 'aria-label': r.label },
-      h('span', { class: 'node', 'aria-hidden': 'true' }),
-      h('span', { class: 'title' }, r.prefix && h('span', { class: 'prefix', text: r.prefix }), r.prefix && ' ', r.rest,
-        r.kind === 'parent' && h('span', { class: 'fold-tail', text: ' · ' + r.meta[r.meta.length - 1] })),
-      meta);
-    if (r.silence) {
-      const lull = h('span', { class: 'lull ' + r.silence.cls + (r.silence.f >= 0.5 ? ' late' : ''), 'aria-hidden': 'true', 'data-f': r.silence.f });
-      lull.style.transform = 'scaleX(' + r.silence.f.toFixed(3) + ')';
-      link.append(lull);
+    const running = r.kind === 'running';
+    const cls = 'row ' + r.kind + (r.asks ? ' is-asks' : '') + (r.stuck ? ' is-stuck' : '') + (r.isNew ? ' is-new' : '') + (r.pending ? ' is-pending' : '') + (r.dated ? ' is-dated' : '');
+    // The status column: model and run time, then a state only when there is one to say.
+    // A parent kept for context says nothing unless it failed or was stopped.
+    let aside = null;
+    if (running) {
+      aside = h('span', { class: 'aside' }, h('span', { class: 'model' + (r.provider ? ' pv-' + r.provider : ''), text: r.model }),
+        r.run && sep(), r.run && h('span', { class: 'run', text: r.run }),
+        r.note && h('span', { class: 'note ' + r.note.cls, text: r.note.text }));
+    } else if (r.state !== 'completed') {
+      aside = h('span', { class: 'aside' }, h('span', { class: 'note quiet', text: r.meta[r.meta.length - 1] }));
     }
+    // A row its app can't open is not a tab stop, but the header's flags can still focus it.
+    const link = h('a', { class: cls, href: r.href || null, tabindex: r.href ? null : '-1', 'data-provider': r.provider || null, 'data-key': 'row:' + r.id, 'data-id': r.id, 'data-start': r.started || 0, 'aria-label': r.label,
+      // How far through the stuck threshold its silence is; the node draws it as a draining disc.
+      'data-f': r.silence ? r.silence.f.toFixed(3) : null },
+      h('span', { class: 'node', 'aria-hidden': 'true' }),
+      h('span', { class: 'title' }, r.prefix && h('span', { class: 'prefix', text: r.prefix }), r.prefix && ' ', r.rest),
+      aside);
     return h('li', { class: 'item d' + depth }, link,
-      r.children.length > 0 && h('ul', { class: 'kids' }, r.children.map((c) => rowEl(c, project))));
+      r.children.length > 0 && h('ul', { class: 'kids' }, r.children.map((c) => rowEl(c))));
   }
 
-  // T3's project icon sits on the trunk in place of the project node. It is decorative; the
-  // heading text stays the label. Favicons come from owner-authenticated fetches as blob: URLs.
+  // T3's project icon heads each project's rail. It is decorative; the heading text stays the
+  // label. Favicons come from owner-authenticated fetches as blob: URLs.
   const favicons = new Map(); // key → object URL, null (no favicon) or 'pending'
   function projectIcon(icon) {
     const I = window.NagiIcons;
@@ -144,199 +221,176 @@
     });
   }
 
-  function projectList(vm) {
-    const kids = [];
-    if (vm.projects.length) {
-      kids.push(h('ul', { class: 'projects', 'aria-label': 'Agents by project' }, vm.projects.map((p) => h('li', { class: 'project' },
-        h('div', { class: 'proj-head', 'data-node': 'project' }, projectIcon(p.icon), h('span', { class: 'proj-name', text: p.title })),
-        h('ul', { class: 'agents' }, p.rows.map((r) => rowEl(r, p.title)))))));
-    }
-    if (vm.omitted) kids.push(h('p', { class: 'note', text: vm.omitted }));
-    if (vm.message) kids.push(h('p', { class: 'message', 'data-node': 'anchor', text: vm.message }));
-    return kids;
+  // An empty list: a quiet mark and a few words. The sentence is its tooltip and, on a click
+  // or Enter, a line beneath it.
+  let sayOpen = false;
+  function sayLine(say) {
+    const inside = [window.NagiIcons.glyph(say.icon), h('span', { class: 'say-words', text: say.words })];
+    if (!say.detail) return h('p', { class: 'say', 'data-node': 'anchor' }, inside);
+    const detail = h('p', { class: 'say-detail', id: 'say-detail', hidden: !sayOpen, text: say.detail });
+    const button = h('button', { type: 'button', class: 'say', 'data-key': 'say', 'data-node': 'anchor', title: say.detail, 'aria-expanded': String(sayOpen), 'aria-controls': 'say-detail' }, inside);
+    button.addEventListener('click', () => { sayOpen = !sayOpen; button.setAttribute('aria-expanded', String(sayOpen)); detail.hidden = !sayOpen; layout(); });
+    return h('div', { class: 'say-box' }, button, detail);
   }
 
   function renderPast(vm, view) {
-    const past = $('past');
-    if (!view || view.kind !== 'multi') {
-      const kids = projectList(vm);
-      if (view && view.kind === 'empty') kids.push(h('p', { class: 'setup-call' }, h('button', { class: 'btn default', type: 'button', id: 'start-setup', text: 'Set up Nagi' })));
-      past.replaceChildren(...kids);
-      const start = $('start-setup');
-      if (start) start.addEventListener('click', (event) => openSetup({ instant: event.detail === 0 }));
-      return;
+    const kids = [];
+    const list = vm.list || [];
+    if (list.length) {
+      kids.push(h('ul', { class: 'projects', 'aria-label': 'Agents by project' }, list.map((p) => h('li', { class: 'project' + (p.dated ? ' is-dated' : '') },
+        h('div', { class: 'proj-head', 'data-node': 'project' }, projectIcon(p.icon), h('span', { class: 'proj-name', text: p.title }), p.source && chip(p.source)),
+        h('ul', { class: 'agents' }, p.rows.map((r) => rowEl(r)))))));
     }
-    // Several sources: harness → computer → projects, each source with its own truth and Ended line.
-    past.replaceChildren(...vm.groups.map((g) => h('section', { class: 'source-group', 'aria-label': g.name },
-      view.showHarness && h('div', { class: 'src-head', 'data-node': 'source' }, harnessIcon(g.harness, g.name), h('span', { class: 'src-name', text: g.name })),
-      g.sources.map((src) => h('div', { class: 'source', 'data-source': src.id, 'aria-label': g.name + ', ' + src.label },
-        view.showComputer && h('div', { class: 'computer-head', 'data-node': 'computer' }, h('span', { class: 'computer-name', text: src.label })),
-        src.state && h('p', { class: 'source-state', 'data-node': 'anchor', text: src.state }),
-        projectList({ ...src.vm, message: src.vm.mode === 'live' ? src.vm.message : '' }),
-        src.vm.ended && endedBlock(src.vm.ended, 'src:' + src.id))))));
+    (vm.notes || []).forEach((text) => kids.push(h('p', { class: 'note-line', text })));
+    if (vm.say) kids.push(sayLine(vm.say));
+    if (view && view.kind === 'empty') kids.push(h('p', { class: 'setup-call' }, h('button', { class: 'btn default', type: 'button', id: 'start-setup', text: 'Set up Nagi' })));
+    $('past').replaceChildren(...kids);
+    const start = $('start-setup');
+    if (start) start.addEventListener('click', (event) => openSetup({ instant: event.detail === 0 }));
   }
 
-  function harnessIcon(id, name) {
-    const identity = M.projectIdentity(name);
-    const el = window.NagiIcons.monogram(identity.monogram, identity.color);
-    el.setAttribute('aria-hidden', 'true');
-    return el;
-  }
-
-  function renderEnded(vm, view) {
+  // ---- Ended: one line, an outcome bar, and the threads that failed or were stopped ----------
+  function renderEnded(vm) {
     const box = $('ended');
-    const e = view && view.kind === 'multi' ? null : vm.ended;
+    const e = vm.endedAll;
     box.hidden = !e;
     if (!e) { box.replaceChildren(); return; }
-    box.replaceChildren(...endedBlock(e, 'single').childNodes);
-  }
-
-  // One Ended line and its list; each source keeps its own, opened independently.
-  function endedBlock(e, key) {
-    const listId = key === 'single' ? 'ended-list' : 'ended-list-' + key.replace(/[^a-z0-9]/gi, '');
-    let endedOpen = !!endedOpenBy.get(key);
-    // The visible line is the button's name (WCAG 2.5.3); the split and the open state are its
-    // description and aria-expanded, so speech control can say what it sees.
-    const descId = listId + '-desc';
-    const button = h('button', { class: 'ended-btn', type: 'button', 'data-key': key === 'single' ? 'ended' : 'ended:' + key, 'aria-expanded': String(endedOpen), 'aria-controls': listId,
-      'aria-describedby': descId },
-      h('span', { class: 'ended-line' }, h('b', { text: String(e.count) }), ' ended since ' + e.since,
-        (() => { const s = svg('svg', { class: 'chev', viewBox: '0 0 12 12', 'aria-hidden': 'true' }); s.append(svg('path', { d: 'M4.5 2.5 8 6l-3.5 3.5' })); return s; })()),
-      // Lines break only between project names, never inside one.
-      h('span', { class: 'ended-split' }, e.projects.split(', ').flatMap((name, i) => [i ? ', ' : null, h('span', { class: 'nowrap', text: name })])));
-    // Outside the button, so it is the description only and never part of the name.
-    const desc = h('span', { class: 'sr', id: descId, text: e.split + '.' });
-    // Expanded: project groups read as headings, failed and stopped threads as rows under them.
-    const list = h('ul', { class: 'ended-list', id: listId, hidden: !endedOpen },
-      h('li', { class: 'eg-total', text: e.split }),
+    const t = e.totals;
+    const bar = h('span', { class: 'obar', 'aria-hidden': 'true' });
+    [['done', t.completed], ['failed', t.failed], ['stopped', t.stopped]].forEach(([cls, n]) => {
+      if (!n) return;
+      const part = h('i', { class: cls }); part.style.flexGrow = String(n); bar.append(part);
+    });
+    // The visible line is the button's name; the dated sentence is its description.
+    const button = h('button', { class: 'ended-btn', type: 'button', 'data-key': 'ended', 'aria-expanded': String(endedOpen), 'aria-controls': 'ended-list', 'aria-describedby': 'ended-desc' },
+      h('span', { class: 'node', 'aria-hidden': 'true' }),
+      h('span', { class: 'ended-line' }, e.count == null ? 'Ended' : h('b', { text: String(e.count) }), e.count == null ? '' : ' ended'),
+      bar.children.length > 0 && bar,
+      e.problems && h('span', { class: 'ended-problems', text: e.problems }),
+      e.more && h('span', { class: 'ended-more', text: e.more }),
+      h('span', { class: 'ended-span' }, e.span, chevron()));
+    const desc = h('span', { class: 'sr', id: 'ended-desc', text: e.label + (e.split ? ' ' + e.split + '.' : '') });
+    const list = h('ul', { class: 'ended-list', id: 'ended-list', hidden: !endedOpen },
       e.groups.map((g) => h('li', { class: 'eg-group' },
-        h('div', { class: 'eg' }, projectIcon(g.icon), h('span', { class: 'eg-name', text: g.title }), h('span', { class: 'eg-meta', text: g.summary })),
+        h('div', { class: 'eg' }, projectIcon(g.icon), h('span', { class: 'eg-name', text: g.title }), g.source && chip(g.source), h('span', { class: 'eg-meta', text: g.summary })),
         g.problems.length > 0 && h('ul', { class: 'problems' }, g.problems.map((p, i) => h('li', {},
-          h('a', { class: 'problem', href: p.href || null, 'data-key': 'problem:' + g.id + ':' + i, 'aria-label': p.title + '. ' + p.meta + '.' + (p.href ? ' Opens in T3 Code.' : '') },
+          h('a', { class: 'problem', href: p.href || null, 'data-key': 'problem:' + g.key + ':' + i, 'aria-label': p.title + '. ' + p.meta + '.' + (p.href ? ' Opens in its app.' : '') },
             h('span', { class: 'node', 'aria-hidden': 'true' }), h('span', { class: 'title', text: p.title }),
-            h('span', { class: 'meta' }, h('span', { class: 'model' + (p.provider ? ' pv-' + p.provider : ''), text: p.model }), sep(), p.when))))))));
+            h('span', { class: 'aside', text: p.when }))))))));
     button.addEventListener('click', () => {
-      endedOpen = !endedOpen; endedOpenBy.set(key, endedOpen);
+      endedOpen = !endedOpen;
       button.setAttribute('aria-expanded', String(endedOpen));
       list.hidden = !endedOpen;
       layout();
-      // The list scrolls in under the pinned line with an inset, so no line is cut.
       if (endedOpen) reveal(button, button);
     });
-    return h('div', { class: 'ended' }, button, desc, list);
+    box.replaceChildren(button, desc, list);
   }
 
-  // ---- Layout and geometry -----------------------------------------------
+  // ---- Sources rail: a chip per source; words only for an exception ---------------------------
+  function renderRail(vm) {
+    const items = vm.rail || [];
+    const box = $('rail');
+    box.hidden = !items.length;
+    if (!items.length) { box.replaceChildren(); openSource = null; return; }
+    const chips = h('div', { class: 'srcs' }, items.map((r) => {
+      const inside = [chip(r), r.showLabel && h('span', { class: 'src-label', text: r.label }),
+        r.count != null && h('b', { class: 'src-count', text: String(r.count) }), r.icon && window.NagiIcons.glyph(r.icon), r.words && h('span', { class: 'src-words', text: r.words })];
+      // Only a source with something to explain opens a line of words.
+      if (!r.detail) return h('span', { class: 'src ' + r.state, title: r.title, 'aria-label': r.said, role: 'img' }, inside);
+      const open = openSource === r.id;
+      const button = h('button', { type: 'button', class: 'src ' + r.state + (open ? ' is-open' : ''), 'data-key': 'src:' + r.id, title: r.title + ': ' + r.detail, 'aria-label': r.said, 'aria-expanded': String(open), 'aria-controls': 'rail-detail' }, inside);
+      button.addEventListener('click', () => { openSource = open ? null : r.id; if (!open) lastOpened = 'src'; renderRail(vm); layout(); focusKey('src:' + r.id); });
+      return button;
+    }));
+    const chosen = items.find((r) => r.id === openSource && r.detail);
+    if (!chosen) openSource = null;
+    box.replaceChildren(...[chosen && h('p', { class: 'rail-detail', id: 'rail-detail' }, h('b', { text: chosen.title }), ' ' + chosen.detail), chips].filter(Boolean));
+  }
+
+  // ---- Layout and geometry -----------------------------------------------------------------
+  // Positions in the scrolled content's own CSS pixels. Under a CSS zoom (the website's Mac
+  // density) rects come back scaled, so they are divided back; the native shells zoom the
+  // whole page, where the factor is 1.
   function rel(el, box) {
     const r = el.getBoundingClientRect();
-    return { x: r.left - box.left + r.width / 2, y: r.top - box.top + r.height / 2, top: r.top - box.top, bottom: r.bottom - box.top };
+    const k = inner.offsetWidth ? box.width / inner.offsetWidth : 1;
+    return { x: (r.left - box.left + r.width / 2) / k, y: (r.top - box.top + r.height / 2) / k, top: (r.top - box.top) / k, bottom: (r.bottom - box.top) / k };
   }
+  const radius = (row) => (row.classList.contains('is-pending') ? 4.5 : 5.5);
 
-  function placeNowLine() {
-    const now = $('now');
-    now.style.height = '';
-    const nb = now.getBoundingClientRect();
-    const y = Math.round(now.querySelector('.bl').getBoundingClientRect().top - nb.top + 6);
-    nowline.style.top = y + 'px';
-    now.style.height = (y + 1) + 'px';
-    // Keep the right-hand words clear of the line whatever the numeral's metrics are.
-    const right = now.querySelector('.hero-right');
-    right.style.transform = '';
-    const over = right.getBoundingClientRect().bottom - nb.top - (y - 5);
-    if (over > 0) right.style.transform = 'translateY(' + (-over) + 'px)';
-  }
-
-  function drawTop() {
-    const geo = $('geo-top'); const pinned = $('pinned');
-    const box = pinned.getBoundingClientRect();
-    geo.setAttribute('width', box.width); geo.setAttribute('height', box.height);
-    geo.replaceChildren();
-    const tx = parseFloat(getComputedStyle(panel).getPropertyValue('--trunk-x'));
-    const nowY = rel(nowline, box).y;
-    const lims = [...document.querySelectorAll('#limits [data-node="limit"]')];
-    if (lims.length) {
-      const first = rel(lims[0].querySelector('.lim-name'), box).y;
-      geo.append(svg('path', { class: 'trunk', d: `M${tx} ${first} V${nowY}` }));
-      lims.forEach((li) => geo.append(svg('circle', { class: 'n-limit' + (li.classList.contains('empty') ? ' empty' : ''), cx: tx, cy: rel(li.querySelector('.lim-name'), box).y, r: 4 })));
-    }
-  }
-
+  // Each project is its own small tree: a rail from its icon through its agents, and a drawn
+  // branch from every parent to each child. Lines stop short of the nodes they meet.
   function drawPast() {
     const geo = $('geo-past');
     const box = inner.getBoundingClientRect();
-    geo.setAttribute('width', box.width); geo.setAttribute('height', inner.scrollHeight);
+    geo.setAttribute('width', inner.offsetWidth); geo.setAttribute('height', inner.scrollHeight);
     geo.replaceChildren();
-    const tx = parseFloat(getComputedStyle(panel).getPropertyValue('--trunk-x'));
-    const heads = [...document.querySelectorAll('#past [data-node="project"] .proj-name')];
-    // The trunk runs to the last Ended line, truth line or heading, whichever is lowest.
-    const ends = [...inner.querySelectorAll('.ended:not([hidden]) .ended-line, [data-node="anchor"], [data-node="source"] .src-name, [data-node="computer"] .computer-name')];
-    const endLine = !$('ended').hidden ? $('ended').querySelector('.ended-line') : null;
-    const lows = [...ends, ...heads].map((el) => rel(el, box).y);
-    const lastY = lows.length ? Math.max(...lows) : null;
-    if (lastY == null) return;
-    // An expanded Ended list keeps the trunk running down past its project headings.
-    const groups = [...document.querySelectorAll('.ended-list:not([hidden]) .eg-name')];
-    const trunkEnd = Math.max(lastY, ...groups.map((el) => rel(el, box).y));
-    geo.append(svg('path', { class: 'trunk', d: `M${tx} 0 V${trunkEnd}` }));
-    groups.forEach((el) => { if (!el.parentElement.querySelector('.pi')) geo.append(svg('circle', { class: 'n-group', cx: tx, cy: rel(el, box).y, r: 3 })); });
-    // Each failed or stopped thread hangs from its project's stem on a node, never a bare indent.
-    document.querySelectorAll('.ended-list:not([hidden]) .eg-group').forEach((group) => {
-      const gy = rel(group.querySelector('.eg-name'), box).y;
-      group.querySelectorAll('.problem .node').forEach((el) => {
-        const n = rel(el, box);
-        geo.append(svg('path', { class: 'branch', d: `M${tx} ${gy} V${n.y - R} Q${tx} ${n.y} ${tx + R} ${n.y} H${n.x - 4.5}` }));
-        geo.append(svg('circle', { class: 'n-ended', cx: n.x, cy: n.y, r: 4 }));
+    const branch = (d, row) => {
+      const path = svg('path', { class: 'branch', d, 'data-start': row ? row.dataset.start : 0 });
+      if (row && row.classList.contains('is-new')) path.dataset.new = '1';
+      geo.append(path);
+    };
+    const rail = (head, rows) => {
+      if (!head || !rows.length) return;
+      const top = rel(head, box);
+      let y = top.bottom + 1;
+      rows.forEach((row) => {
+        const n = rel(row.querySelector('.node'), box); const r = radius(row);
+        if (n.y - r - GAP > y) branch(`M${top.x} ${y} V${n.y - r - GAP}`, row);
+        y = n.y + r + GAP;
       });
-    });
-    // A project's T3 icon stands in for its node on the trunk.
-    heads.forEach((el) => { if (!el.parentElement.querySelector('.pi')) geo.append(svg('circle', { class: 'n-project', cx: tx, cy: rel(el, box).y, r: 4.5 })); });
-    if (endLine) geo.append(svg('circle', { class: 'n-ended', cx: tx, cy: rel(endLine, box).y, r: 4 }));
-    // Each source's Ended line, and each computer, sits on the trunk as a ring.
-    inner.querySelectorAll('.source .ended-line').forEach((el) => geo.append(svg('circle', { class: 'n-ended', cx: tx, cy: rel(el, box).y, r: 4 })));
-    inner.querySelectorAll('[data-node="computer"] .computer-name').forEach((el) => geo.append(svg('circle', { class: 'n-group', cx: tx, cy: rel(el, box).y, r: 3 })));
-    const branches = [];
-    const node = (item) => rel(item.querySelector(':scope > .row .node'), box);
+    };
+    const rowOf = (item) => item.querySelector(':scope > .row');
     document.querySelectorAll('#past .project').forEach((proj) => {
-      const py = rel(proj.querySelector('.proj-name'), box).y;
-      proj.querySelectorAll(':scope > .agents > .item').forEach((item) => {
-        const n = node(item);
-        branches.push({ item, d: `M${tx} ${py} V${n.y - R} Q${tx} ${n.y} ${tx + R} ${n.y} H${n.x - 5.5}` });
-      });
+      rail(proj.querySelector('.proj-head .pi'), [...proj.querySelectorAll(':scope > .agents > .item')].map(rowOf));
     });
     document.querySelectorAll('#past .kids').forEach((ul) => {
-      const p = node(ul.parentElement);
+      const parentRow = rowOf(ul.parentElement);
+      const p = rel(parentRow.querySelector('.node'), box); const pr = radius(parentRow);
       [...ul.children].forEach((item) => {
-        const n = node(item);
-        const d = n.x - p.x < R + 6 ? `M${p.x} ${p.y + 5.5} V${n.y - 5.5}`
-          : `M${p.x} ${p.y + 5.5} V${n.y - R} Q${p.x} ${n.y} ${p.x + R} ${n.y} H${n.x - 5.5}`;
-        branches.push({ item, d });
+        const row = rowOf(item);
+        const n = rel(row.querySelector('.node'), box); const r = radius(row);
+        const d = n.x - p.x < R + 6 ? `M${p.x} ${p.y + pr + GAP} V${n.y - r - GAP}`
+          : `M${p.x} ${p.y + pr + GAP} V${n.y - R} Q${p.x} ${n.y} ${p.x + R} ${n.y} H${n.x - r - GAP}`;
+        branch(d, row);
       });
     });
-    branches.forEach((b) => {
-      const row = b.item.querySelector(':scope > .row');
-      const path = svg('path', { class: 'branch', d: b.d, 'data-start': row.dataset.start });
-      if (row.classList.contains('is-new')) path.dataset.new = '1';
-      geo.append(path);
+    // An expanded Ended list: each project's failed and stopped threads hang from its icon.
+    document.querySelectorAll('.ended-list:not([hidden]) .eg-group').forEach((group) => {
+      rail(group.querySelector('.eg .pi'), [...group.querySelectorAll('.problem')]);
     });
-    document.querySelectorAll('#past .row .node').forEach((el) => {
+    // Nodes keep their state shape (solid running, ring otherwise) in the provider's colour;
+    // asks you stays rose, the one colour reserved for it. A dated row is always hollow.
+    document.querySelectorAll('#past .row .node, #ended .problem .node, #ended .ended-btn .node').forEach((el) => {
       const a = rel(el, box); const row = el.parentElement;
-      const parent = row.classList.contains('parent');
-      // Solid title dots are running rows only; queued or starting rows get a small ring.
+      const running = row.classList.contains('running') && !row.classList.contains('is-dated');
       const pending = row.classList.contains('is-pending');
-      // The node keeps its state shape (solid running, ring otherwise) in the provider's colour;
-      // asks you stays rose, the one colour reserved for it.
       const asks = row.classList.contains('is-asks');
       const tone = !asks && row.dataset.provider ? ' pv-' + row.dataset.provider : '';
-      const c = svg('circle', { class: (parent ? 'n-parent' : asks ? 'n-asks' : pending ? 'n-pending' : 'n-running') + tone, cx: a.x, cy: a.y, r: parent ? 4.5 : pending ? 3.5 : 5 });
-      c.dataset.key = row.dataset.key;
+      // Silence drains the node like a timer: a full disc has just spoken, a thin wedge is
+      // nearly stuck, an empty yellow ring is stuck. Under a tenth it is simply full.
+      const f = running && !asks && row.dataset.f != null ? Number(row.dataset.f) : 0;
+      if (f >= 0.1) {
+        const late = f >= 0.5 ? ' late' : '';
+        geo.append(svg('circle', { class: 'n-rim' + tone + late, cx: a.x, cy: a.y, r: 4.5 }));
+        if (f < 1) {
+          const left = (1 - f) * 2 * Math.PI; const r = 4.5;
+          const x = a.x + Math.sin(left) * r; const y = a.y - Math.cos(left) * r;
+          geo.append(svg('path', { class: 'n-wedge' + tone + late, d: `M${a.x} ${a.y} V${a.y - r} A${r} ${r} 0 ${left > Math.PI ? 1 : 0} 1 ${x.toFixed(2)} ${y.toFixed(2)} Z` }));
+        }
+        return;
+      }
+      const c = svg('circle', { class: (asks ? 'n-asks' : pending ? 'n-pending' : running ? 'n-running' : 'n-ring') + tone, cx: a.x, cy: a.y, r: pending ? 3.5 : running || asks ? 5 : 4.5 });
+      if (row.dataset.key) c.dataset.key = row.dataset.key;
       geo.append(c);
     });
   }
 
-  function natural() { return $('pinned').offsetHeight + inner.offsetHeight; }
+  function natural() { return $('pinned').offsetHeight + inner.offsetHeight + $('rail').offsetHeight; }
 
-  // Scroll so `top` sits INSET px under the rose line while `target` stays fully in view.
-  const INSET = 10; // the gap the list has under the rose line at rest
+  // Scroll so `top` sits INSET px under the pinned band while `target` stays fully in view.
+  const INSET = 8;
   function reveal(top, target) {
     const view = scroll.getBoundingClientRect();
     const y = (el) => el.getBoundingClientRect().top - view.top + scroll.scrollTop;
@@ -344,51 +398,32 @@
     const bottom = y(target) + target.getBoundingClientRect().height + INSET - scroll.clientHeight;
     scroll.scrollTop = Math.min(Math.max(want, bottom), y(target) - INSET);
   }
-
-  function syncHeroWords() {
-    const overflow = scroll.scrollHeight > scroll.clientHeight + 1;
-    const view = scroll.getBoundingClientRect();
-    document.querySelectorAll('#hero .hero-word').forEach((word) => {
-      const row = document.querySelector('#past .row.is-' + word.dataset.target);
-      let out = false;
-      if (overflow && row) { const r = row.getBoundingClientRect(); out = r.top < view.top || r.bottom > view.bottom; }
-      const isButton = word.tagName === 'BUTTON';
-      if (out === isButton) return;
-      const next = out ? h('button', { type: 'button', class: word.className, 'data-target': word.dataset.target, 'data-key': 'word:' + word.dataset.target, text: word.textContent })
-        : h('span', { class: word.className, 'data-target': word.dataset.target, text: word.textContent });
-      if (out) next.addEventListener('click', () => {
-        // Keep the project heading (and so the parent) in view above the row.
-        reveal(row.closest('.project').querySelector('.proj-head'), row);
-        row.focus({ preventScroll: true });
-      });
-      word.replaceWith(next);
-    });
+  // Focus without jumping the page; a dial scrolled out of its band is brought back into it.
+  function focusKey(key) {
+    const el = document.querySelector(`[data-key="${CSS.escape(key)}"]`);
+    if (!el) return;
+    el.focus({ preventScroll: true });
+    const band = el.closest('.dials');
+    if (band) {
+      const b = band.getBoundingClientRect(); const r = el.getBoundingClientRect();
+      if (r.top < b.top) band.scrollTop -= b.top - r.top;
+      else if (r.bottom > b.bottom) band.scrollTop += r.bottom - b.bottom;
+    }
   }
 
   function layout() {
-    placeNowLine();
-    panel.classList.remove('fold');
-    // The overflow rule is about the running rows; an expanded Ended list never folds them.
-    const open = [...document.querySelectorAll('.ended-list:not([hidden])')].reduce((n, el) => n + el.offsetHeight, 0);
-    if (natural() - open > MAX_H) panel.classList.add('fold');
-    drawTop();
     drawPast();
-    syncHeroWords();
     // Two spare px absorb the rounding between window and CSS pixels at fractional text scales.
     native('height:' + Math.max(MIN_H, Math.min(MAX_H, Math.ceil(natural()) + 2)));
   }
 
-  // When an agent speaks again while the panel is open, its stroke clears.
-  function clearSilences() {
-    const next = new Map();
-    document.querySelectorAll('#past a.row.running').forEach((row) => {
-      const lull = row.querySelector('.lull');
-      const f = lull ? Number(lull.dataset.f) : 0;
-      next.set(row.dataset.id, f);
-      const before = lastSilence.get(row.dataset.id);
-      if (before != null && before >= 1 / 3 && f < 1 / 3) Motion.clearSilence(row, lull, before);
-    });
-    lastSilence = next;
+  // What each dial read at this open, so the next open can show what changed since.
+  function rememberDials() {
+    const now = {};
+    document.querySelectorAll('#dials .arc').forEach((arc) => { now[arc.dataset.key] = Number(arc.dataset.pct); });
+    document.querySelectorAll('#dials .cell.empty').forEach((cell, i) => { now['empty:' + i] = 0; });
+    lastDials = now;
+    try { localStorage.setItem(LAST_DIALS, JSON.stringify(now)); } catch {}
   }
 
   // ---- Data -----------------------------------------------------------------
@@ -406,14 +441,17 @@
     const vm = view.vm;
     const active = document.activeElement && document.activeElement.dataset ? document.activeElement.dataset.key : null;
     const top = scroll.scrollTop;
-    renderLimits(vm); renderHero(vm); renderPast(vm, view); renderEnded(vm, view);
+    // Every open starts from the glance: nothing expanded.
+    if (isOpen) { endedOpen = false; openDial = null; openSource = null; }
+    renderStatus(vm); renderDials(vm); renderPast(vm, view); renderEnded(vm); renderRail(vm);
     panel.dataset.state = vm.mode;
+    panel.dataset.kind = view.kind;
     layout();
     if (isOpen) scroll.scrollTop = 0; else scroll.scrollTop = top;
-    if (active) { const el = document.querySelector(`[data-key="${CSS.escape(active)}"]`); if (el) el.focus({ preventScroll: true }); }
+    if (active) focusKey(active);
     if (isOpen) {
-      Motion.playOpen({ vm, opened, lastOpen, nowline, scroll, geo: $('geo-past'), rows: [...document.querySelectorAll('#past a.row.is-new')] });
-      if (vm.mode === 'live') { lastOpen = opened; try { localStorage.setItem(LAST_OPEN, String(opened)); } catch {} }
+      Motion.playOpen({ vm, opened, lastOpen, lastDials, geo: $('geo-past'), dials: $('dials') });
+      if (vm.mode === 'live') { lastOpen = opened; try { localStorage.setItem(LAST_OPEN, String(opened)); } catch {} rememberDials(); }
       opening = false;
     }
     if (firstRender) {
@@ -422,7 +460,6 @@
       // Nothing connected yet: the setup opens by itself, once per page.
       if (view.kind === 'empty' && !readerFailedAt) openSetup({ instant: true });
     }
-    clearSilences();
   }
 
   async function refresh() {
@@ -504,7 +541,7 @@
     sheetLayer.hidden = false;
     void sheetLayer.offsetHeight; // start the transition from the closed state
     sheetLayer.dataset.open = 'true';
-    panel.querySelectorAll('.pinned, .scroll').forEach((el) => { el.inert = true; });
+    panel.querySelectorAll('.pinned, .scroll, .rail').forEach((el) => { el.inert = true; });
     $('stuck-minutes').focus({ preventScroll: true });
     try {
       const value = await getJson('/api/settings');
@@ -520,7 +557,7 @@
     instant(!options || options.instant !== false);
     const opener = sheet.opener; sheet = null;
     sheetLayer.dataset.open = 'false';
-    panel.querySelectorAll('.pinned, .scroll').forEach((el) => { el.inert = false; });
+    panel.querySelectorAll('.pinned, .scroll, .rail').forEach((el) => { el.inert = false; });
     const done = () => { if (!sheet) sheetLayer.hidden = true; };
     if (reduced() || sheetLayer.classList.contains('instant')) done(); else setTimeout(done, 200);
     const back = opener && opener.isConnected ? opener : $('gear');
@@ -579,10 +616,18 @@
   document.addEventListener('keydown', (event) => {
     if (event.key !== 'Escape') return;
     event.preventDefault();
-    if (sheet) closeSettings(); else native('close');
+    // Esc closes what is open, innermost first: the sheet, a detail, then the panel.
+    if (sheet) closeSettings();
+    else if (openDial || openSource) {
+      // One Esc closes one detail: the one opened last, then the other.
+      const dial = openDial && (!openSource || lastOpened !== 'src');
+      const key = dial ? 'dial:' + openDial : 'src:' + openSource;
+      if (dial) openDial = null; else openSource = null;
+      lastOpened = openDial ? 'dial' : openSource ? 'src' : null;
+      if (view) { renderDials(view.vm); renderRail(view.vm); layout(); focusKey(key); }
+    } else native('close');
   });
-  scroll.addEventListener('scroll', syncHeroWords, { passive: true });
-  window.addEventListener('resize', () => { if (!firstRender) { drawTop(); syncHeroWords(); } });
+  window.addEventListener('resize', () => { if (!firstRender) layout(); });
 
   wireSheet();
   // Mac keeps the page loaded between opens: reopen() refreshes in place and treats the

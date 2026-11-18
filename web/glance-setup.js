@@ -5,7 +5,6 @@
 // or path is ever shown. Keyboard paths open, step and close on the next frame.
 (() => {
   const M = window.NagiModel;
-  const I = window.NagiIcons;
   const API = '/api/sources/v1';
   const POST_HEADERS = { 'Content-Type': 'application/json', 'X-Progress-Desk': '1' };
   const T3_PORT = 3773;
@@ -20,22 +19,8 @@
   };
 
   // ---- Plain words ------------------------------------------------------------------
-  const CAPABILITY_WORDS = [['agents', 'Running agents'], ['lineage', 'Sub-agents'], ['limits', 'Limits'],
-    ['asksYou', 'Questions for you'], ['stuckDetection', 'Stuck alerts'], ['deepLinks', 'Open in the app']];
-  const COPY = {
-    t3_protocol2: "Reads T3 Code's own read-only connection.",
-    openbot_export_required: "Needs OpenBot's activity export.",
-    pi_sidecar_required: 'Needs a small Pi helper.',
-    omp_pi_family_planned: 'Part of the Pi family; it will use the Pi helper.',
-    codex_passive_limits_planned: "Limits from Codex's own logs are planned.",
-    claude_sidecar_required: 'Needs a Claude Code hook helper.',
-    claude_direct: 'Running sessions from Claude Code on this computer, and your Claude limits.',
-    codex_direct: "Running sessions from Codex's own logs on this computer, and your Codex limits.",
-    cursor_direct: 'Recent Cursor activity on this computer, and your monthly limit.',
-    hermes_scoped_export_required: 'Needs a scoped Hermes export.',
-    openclaw_scoped_gateway_required: 'Needs a scoped OpenClaw gateway.',
-    opencode_versioned_adapter_required: 'Needs a tested OpenCode adapter.',
-  };
+  const CAPABILITY_WORDS = [['agents', 'Agents'], ['lineage', 'Sub-agents'], ['limits', 'Limits'],
+    ['asksYou', 'Asks you'], ['stuckDetection', 'Stuck'], ['deepLinks', 'Opens in app']];
   // Closed error codes → what happened and what to do next. Never echoes server text.
   const ERRORS = {
     invalid_request: "Nagi didn't accept that setup. Go back and try again.",
@@ -108,7 +93,8 @@
     for (const kid of kids.flat()) if (kid != null && kid !== false) el.append(kid);
     return el;
   }
-  const icon = (name) => { const id = M.projectIdentity(name); const el = I.monogram(id.monogram, id.color); el.classList.add('pi-inline'); el.setAttribute('aria-hidden', 'true'); return el; };
+  // An app's tile: the same monogram and tint as its chip on the glance.
+  const tile = (app) => h('span', { class: 'app-tile hx-' + app, 'aria-hidden': 'true', text: M.sourceMonogram(app) });
 
   const panel = document.getElementById('panel');
   const layer = h('div', { class: 'sheet-layer setup-layer', id: 'setup-layer', hidden: true },
@@ -143,7 +129,7 @@
     layer.hidden = false;
     void layer.offsetHeight; // start the transition from the closed state
     layer.dataset.open = 'true';
-    panel.querySelectorAll('.pinned, .scroll').forEach((el) => { el.inert = true; });
+    panel.querySelectorAll('.pinned, .scroll, .rail').forEach((el) => { el.inert = true; });
   }
 
   function close(options) {
@@ -151,7 +137,7 @@
     const instant = !options || options.instant !== false;
     layer.classList.toggle('instant', instant);
     layer.dataset.open = 'false';
-    panel.querySelectorAll('.pinned, .scroll').forEach((el) => { el.inert = false; });
+    panel.querySelectorAll('.pinned, .scroll, .rail').forEach((el) => { el.inert = false; });
     const done = () => { if (layer.dataset.open !== 'true') { layer.hidden = true; sheet.replaceChildren(); } };
     if (instant || matchMedia('(prefers-reduced-motion: reduce)').matches) done(); else setTimeout(done, 200);
     const back = opener && opener.isConnected ? opener : host && host.opener();
@@ -172,8 +158,13 @@
   function frame(title, step, body, actions) {
     const heading = h('h2', { id: 'setup-title', tabindex: '-1', text: title });
     // replaceChildren would print false/null as text, so empty slots are dropped first.
+    // Four pips show the step; the words are for screen readers and for what a pip can't say.
+    const at = step ? (typeof step === 'number' ? step : step.n) : 0;
+    const note = step && step.note ? step.note : '';
     sheet.replaceChildren(...[
-      step ? h('p', { class: 'setup-step', text: typeof step === 'string' ? step : 'Step ' + step + ' of 4' }) : null,
+      at ? h('p', { class: 'setup-step' },
+        h('span', { class: 'pips', 'aria-hidden': 'true' }, [1, 2, 3, 4].map((n) => h('i', { class: n <= at ? 'on' : null }))),
+        h('span', { class: 'sr', text: 'Step ' + at + ' of 4' + (note ? ', ' : '') }), note) : null,
       heading,
       ...body,
       h('div', { class: 'sheet-actions' }, actions)].filter((el) => el != null && el !== false));
@@ -191,24 +182,23 @@
 
   // ---- Step 1: which agent apps ---------------------------------------------------------
   function stepApps() {
-    const items = state.catalog.map((app) => {
+    // Apps Nagi can read are choices; what each one shows is a row of tags, not a sentence.
+    const items = state.catalog.filter((app) => app.available).map((app) => {
       const id = 'app-' + app.id;
-      const words = app.available
-        ? CAPABILITY_WORDS.filter(([k]) => app.capabilities[k]).map(([, w]) => w).join(', ')
-        : COPY[app.copyKey] || 'Coming soon.';
-      return h('li', { class: 'choice' + (app.available ? '' : ' unavailable') },
-        h('input', { type: 'checkbox', id, checked: state.apps.has(app.id), disabled: !app.available, 'aria-describedby': id + '-what',
+      return h('li', { class: 'choice' },
+        h('input', { type: 'checkbox', id, checked: state.apps.has(app.id), 'aria-describedby': id + '-what',
           onchange: (event) => { if (event.target.checked) state.apps.add(app.id); else state.apps.delete(app.id); renderKeeping(event.target.id); } }),
-        icon(app.displayName),
+        tile(app.id),
         h('label', { for: id, class: 'choice-text' },
-          h('span', { class: 'choice-name', text: app.displayName }),
-          !app.available && h('span', { class: 'badge', text: 'Coming soon' }),
-          app.available && app.beta && h('span', { class: 'badge', text: 'Beta' }),
-          h('span', { class: 'choice-what', id: id + '-what', text: words })));
+          h('span', { class: 'choice-head' }, h('span', { class: 'choice-name', text: app.displayName }), app.beta && h('span', { class: 'badge', text: 'Beta' })),
+          h('span', { class: 'tags', id: id + '-what' }, CAPABILITY_WORDS.filter(([k]) => app.capabilities[k]).map(([, w]) => h('span', { class: 'tag', text: w })))));
     });
+    // Apps that aren't built yet are named once, plainly, and can't be chosen.
+    const soon = state.catalog.filter((app) => !app.available).map((app) => app.displayName);
     const heading = frame('Which agent apps?', 1, [
       h('p', { class: 'sheet-lede', text: 'Nagi only reads them. It never sends, stops or approves anything.' }),
-      h('ul', { class: 'choices', 'aria-label': 'Agent apps' }, items)],
+      h('ul', { class: 'choices', 'aria-label': 'Agent apps' }, items),
+      soon.length > 0 && h('p', { class: 'soon' }, h('span', { class: 'badge', text: 'Coming soon' }), ' ' + soon.join(', '))],
       [button('Cancel', { onclick: (e) => close({ instant: e.detail === 0 }) }), grow(),
         button('Continue', { primary: true, disabled: !state.apps.size, onclick: () => {
           state.order = state.catalog.filter((c) => c.available && state.apps.has(c.id)).map((c) => c.id);
@@ -255,7 +245,7 @@
     const many = state.order.length > 1;
     const back = () => { if (state.appIndex > 0) { state.appIndex -= 1; go('where'); } else go('apps'); };
     const next = () => { if (state.appIndex < state.order.length - 1) { state.appIndex += 1; go('where'); } else go('connect'); };
-    const label = 'Step 2 of 4 · ' + name + (many ? ' (' + (state.appIndex + 1) + ' of ' + state.order.length + ' apps)' : '');
+    const label = { n: 2, note: many ? 'App ' + (state.appIndex + 1) + ' of ' + state.order.length : '' };
     if (!d || d.discovering) {
       return frame('Where does ' + name + ' run?', label, [live('Looking on this computer and your Tailscale network…')],
         [button('Back', { onclick: back }), grow(), button('Continue', { primary: true, disabled: true })]);
@@ -353,7 +343,7 @@
       const id = 'target-' + i;
       const open = t.status === 'ready' || t.status === 'failed';
       return h('li', { class: 'target-row', 'data-status': t.status, 'aria-labelledby': id + '-name' },
-        icon(t.appName),
+        tile(t.app),
         h('div', { class: 'choice-text' },
           h('span', { class: 'choice-name', id: id + '-name', text: t.appName + ' · ' + shown(t) }),
           h('span', { class: t.status === 'failed' ? 'choice-what target-error' : 'choice-what', role: t.status === 'failed' ? 'alert' : 'status', text: targetWords(t) }),
@@ -384,7 +374,7 @@
             button('Skip', { disabled: busy, 'aria-describedby': id + '-name', onclick: () => { t.status = 'skipped'; pairings.delete(t.key); render(); focusFirst(sheet.querySelector('#setup-title')); } }))));
     });
     const ready = state.targets.filter((t) => t.status === 'ready' && !CONSENT[t.app]).length;
-    return frame('Connect', 'Step 3 of 4', [
+    return frame('Connect', 3, [
       h('p', { class: 'sheet-lede', text: 'Each place connects read-only, one at a time.' }),
       h('ul', { class: 'source-rows targets', 'aria-label': 'Places to connect' }, rows)],
       [button('Back', { disabled: busy, onclick: () => { pairings.clear(); state.appIndex = state.order.length - 1; go('where'); } }), grow(),
@@ -461,13 +451,13 @@
         : t.status === 'skipped' ? 'You can add it later from Settings → Sources.'
           : t.status === 'failed' ? targetWords(t) + ' Choose Add another to try again.' : 'Not tried. Choose Add another to connect it.';
       return h('li', { class: 'summary-row' },
-        icon(t.appName),
+        tile(t.app),
         h('div', { class: 'choice-text' },
           h('span', { class: 'choice-name', text: name + ' · ' + (connected ? 'connected' : t.status === 'skipped' ? 'skipped' : 'not connected') }),
           h('span', { class: 'choice-what', text: what })));
     });
     const count = state.targets.filter((t) => t.status === 'connected').length;
-    return frame('Done', 'Step 4 of 4', [
+    return frame('Done', 4, [
       h('p', { class: 'sheet-lede', role: 'status', text: count ? plural(count, 'source', 'sources') + ' connected.' : 'Nothing was connected this time.' }),
       h('ul', { class: 'source-rows', 'aria-label': 'Setup summary' }, lines)],
       [button('Add another', { onclick: () => restart() }), grow(),
@@ -491,9 +481,9 @@
       const name = M.harnessName(tag.harness);
       const confirming = state.confirm === tag.id;
       rows.push(h('li', { class: 'source-row' },
-        icon(name),
+        tile(tag.harness),
         h('div', { class: 'choice-text' },
-          h('span', { class: 'choice-name', text: name + ' · ' + tag.label }),
+          h('span', { class: 'choice-head' }, h('span', { class: 'choice-name', text: name }), h('span', { class: 'badge', text: tag.label })),
           h('span', { class: 'choice-what', text: sourceState(read) })),
         !confirming && button('Disconnect', { 'aria-label': 'Disconnect ' + name + ' on ' + tag.label, onclick: () => { state.confirm = tag.id; state.error = null; render(); focusFirst(); } }),
         confirming && h('div', { class: 'confirm', role: 'group', 'aria-label': 'Confirm disconnect' },

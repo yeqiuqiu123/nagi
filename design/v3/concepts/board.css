@@ -1,0 +1,199 @@
+/* Nagi v3 concept board. Product tokens mirror web/glance-v2.css; the board chrome is neutral. */
+@font-face { font-family: "Inter"; src: url("../../../web/fonts/inter-opsz.woff2") format("woff2"); font-weight: 100 900; }
+@font-face { font-family: "Nagi Mark"; src: url("../../../web/fonts/nagi-glyph-serif.woff2") format("woff2"); }
+
+:root { --page: #ece9f1; --ink: #17121c; --ink2: #403849; --rule: #d3cddc; color-scheme: light; }
+@media (prefers-color-scheme: dark) { :root { --page: #0f0c13; --ink: #f5f1f8; --ink2: #cdc4d6; --rule: #3a3142; color-scheme: dark; } }
+* { box-sizing: border-box; }
+html { background: var(--page); }
+body { margin: 0; padding: 40px 32px 96px; background: var(--page); color: var(--ink); font: 15px/1.5 "Inter", system-ui, sans-serif; -webkit-font-smoothing: antialiased; }
+.board { max-width: 1180px; margin: 0 auto; }
+.board > h1 { margin: 0 0 4px; font-size: 28px; font-weight: 650; letter-spacing: -.02em; }
+.board > p { margin: 0 0 8px; max-width: 70ch; color: var(--ink2); }
+.concept { margin-top: 56px; padding-top: 28px; border-top: 1px solid var(--rule); display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 28px 40px; align-items: start; }
+.concept h2 { margin: 0 0 6px; font-size: 22px; font-weight: 650; letter-spacing: -.01em; }
+.concept .rank { font-weight: 500; color: var(--ink2); }
+.concept dl { margin: 14px 0 0; display: grid; grid-template-columns: 110px 1fr; gap: 8px 16px; max-width: 46ch; }
+.concept dt { font-weight: 600; }
+.concept dd { margin: 0; color: var(--ink2); }
+.frames { display: flex; gap: 20px; }
+.frame-wrap { display: flex; flex-direction: column; gap: 8px; }
+.frame-wrap > span { font-size: 13px; color: var(--ink2); }
+@media (max-width: 1240px) { .concept { grid-template-columns: 1fr; } }
+@media (max-width: 900px) { .frames { flex-direction: column; } }
+
+/* ---- The panel, 400 px wide ---------------------------------------------------------------- */
+.frame {
+  --bg: #18131d; --raised: #211a27; --sheet: #241d2b;
+  --title: #f5f1f8; --title-context: #e2dbe9; --secondary: #cdc4d6; --tertiary: #a397b0;
+  --stroke: #9486a3; --hair: #3a3142; --track: #3a3142;
+  --rose: #ff7aa5; --rose-text: #ff9dbb; --rose-wash: #2b1826; --amber: #e6c84a; --amber-text: #ecd27a;
+  --pv-claude: #e2977f; --pv-claude-node: #d97757; --pv-codex: #13c197; --pv-codex-node: #10a37f; --pv-gemini: #7caaf7; --pv-gemini-node: #4285f4;
+  --chip-t3: #f472b6; --chip-cx: #34d399; --chip-cc: #fb923c;
+  width: 400px; border-radius: 12px; overflow: hidden; background: var(--bg); color: var(--title);
+  box-shadow: 0 0 0 .5px rgb(0 0 0 / .3), 0 10px 24px rgb(0 0 0 / .34);
+  font: 15px/1.34 "Inter", system-ui, sans-serif; cursor: default; user-select: none;
+}
+.frame[data-theme="light"] {
+  --bg: #f2f0f6; --raised: #e8e5ee; --sheet: #fbfafd;
+  --title: #17121c; --title-context: #2b2432; --secondary: #403849; --tertiary: #645b70;
+  --stroke: #6b6280; --hair: #dcd7e4; --track: #dcd7e4;
+  --rose: #c8235f; --rose-text: #8f103c; --rose-wash: #f6dfe8; --amber: #7d6800; --amber-text: #594a00;
+  --pv-claude: #7b331c; --pv-claude-node: #d15a34; --pv-codex: #085240; --pv-codex-node: #0e9071; --pv-gemini: #0943a3; --pv-gemini-node: #317af3;
+  --chip-t3: #be185d; --chip-cx: #047857; --chip-cc: #c2410c;
+}
+.frame ul { list-style: none; margin: 0; padding: 0; }
+.num, .tn { font-variant-numeric: tabular-nums; }
+.kanji { font-family: "Nagi Mark", serif; font-size: 22px; line-height: 1; }
+.gear { margin-left: 4px; width: 28px; height: 28px; display: grid; place-items: center; border-radius: 7px; color: var(--secondary); }
+.gear svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width: 1.6; stroke-linecap: round; }
+.chip { display: inline-grid; place-items: center; min-width: 22px; height: 16px; padding: 0 4px; border-radius: 4px; font-size: 12px; line-height: 1; font-weight: 700; letter-spacing: .01em;
+  color: var(--c); background: color-mix(in srgb, var(--c) 16%, var(--bg)); }
+.chip.t3 { --c: var(--chip-t3); } .chip.cx { --c: var(--chip-cx); } .chip.cc { --c: var(--chip-cc); }
+.pi { display: inline-grid; place-items: center; width: 20px; height: 20px; border-radius: 25%; font-size: 10.5px; font-weight: 700; color: var(--c); background: color-mix(in srgb, var(--c) 14%, var(--bg)); }
+.pv-claude { color: var(--pv-claude); } .pv-codex { color: var(--pv-codex); } .pv-gemini { color: var(--pv-gemini); }
+
+/* Dial (hydrated by board.js) */
+.dial { position: relative; display: block; width: 50px; height: 50px; }
+.dial svg { display: block; width: 50px; height: 50px; overflow: visible; }
+.dial .track { fill: none; stroke: var(--track); stroke-width: 5; }
+.dial .arc { fill: none; stroke: var(--secondary); stroke-width: 5; stroke-linecap: round; }
+.dial[data-pv="claude"] .arc { stroke: var(--pv-claude-node); }
+.dial[data-pv="codex"] .arc { stroke: var(--pv-codex-node); }
+.dial[data-pv="gemini"] .arc { stroke: var(--pv-gemini-node); }
+.dial[data-state="low"] .arc { stroke: var(--amber); }
+.dial[data-state="dated"] .arc { stroke: var(--stroke); }
+.dial[data-state="failed"] .track { stroke: var(--stroke); stroke-width: 2; stroke-dasharray: 2 5; stroke-linecap: round; }
+.dial .tick-halo { stroke: var(--bg); stroke-width: 5; stroke-linecap: round; }
+.dial .tick { stroke: var(--title); stroke-width: 2; stroke-linecap: round; }
+.dial .val { position: absolute; inset: 0; display: grid; place-items: center; font-size: 15px; font-weight: 650; letter-spacing: -.01em; font-variant-numeric: tabular-nums; }
+.dial .val small { font-size: 12px; font-weight: 500; color: var(--secondary); }
+.dial .val span { display: inline-flex; align-items: baseline; }
+.dial[data-state="low"] .val { color: var(--amber-text); }
+.dial[data-state="empty"] .val { font-size: 13px; }
+.dial[data-state="failed"] .val { font-size: 17px; font-weight: 600; color: var(--secondary); }
+
+/* ---- Concept 1: Soundings ------------------------------------------------------------------ */
+.c1 .status { display: flex; align-items: center; gap: 10px; height: 48px; padding: 0 10px 0 16px; }
+.c1 .headline { display: flex; align-items: baseline; gap: 6px; font-size: 17px; font-weight: 620; }
+.c1 .headline b { font-size: 22px; font-weight: 650; font-variation-settings: "opsz" 28; letter-spacing: -.02em; }
+.c1 .flags { margin-left: auto; display: flex; gap: 10px; font-size: 15px; font-weight: 650; }
+.c1 .asks { color: var(--rose-text); } .c1 .stuck { color: var(--amber-text); }
+.c1 .dials { display: flex; flex-wrap: wrap; gap: 14px 8px; padding: 2px 12px 14px; border-bottom: 1px solid var(--hair); }
+.c1 .acct { display: flex; flex-direction: column; align-items: center; gap: 5px; }
+.c1 .acct-name { display: flex; align-items: center; gap: 6px; font-size: 13px; font-weight: 620; white-space: nowrap; }
+.c1 .cells { display: flex; gap: 2px; }
+.c1 .cell { min-width: 62px; display: flex; flex-direction: column; align-items: center; text-align: center; font-size: 13px; line-height: 16px; white-space: nowrap; }
+.c1 .cell .dial { margin-bottom: 5px; }
+.c1 .cell .w { font-weight: 520; color: var(--title); }
+.c1 .cell .d { font-weight: 420; color: var(--secondary); }
+.c1 .cell.failed .w { font-weight: 480; letter-spacing: -.01em; }
+.c1 .list { padding: 10px 0 8px; }
+.c1 .proj { position: relative; padding-top: 2px; }
+.c1 .proj + .proj { margin-top: 8px; }
+.c1 .proj-head { display: flex; align-items: center; gap: 8px; padding: 0 16px; height: 22px; font-size: 13px; font-weight: 650; }
+.c1 .proj-head .chip { margin-left: auto; }
+.c1 .row { position: relative; display: grid; grid-template-columns: 1fr auto; column-gap: 12px; padding: 4px 16px 7px var(--tx, 44px); border-radius: 8px; }
+.c1 .row .t { font-weight: 560; overflow-wrap: anywhere; }
+.c1 .row .a { text-align: right; font-size: 13px; line-height: 20px; color: var(--secondary); white-space: nowrap; }
+.c1 .row .a .s { display: block; font-weight: 650; }
+.c1 .row.ctx { padding-top: 3px; padding-bottom: 4px; }
+.c1 .row.ctx .t { font-weight: 500; color: var(--title-context); }
+.c1 .row.is-asks { background: var(--rose-wash); }
+.c1 .row::before { content: ""; position: absolute; left: calc(var(--tx, 44px) - 23px); top: 9px; width: 10px; height: 10px; border-radius: 50%; background: var(--nc, var(--title)); z-index: 1; }
+.c1 .row.ctx::before { background: var(--bg); box-shadow: inset 0 0 0 2px var(--stroke); }
+.c1 .row.is-asks::before { background: var(--rose); }
+.c1 .d2 { --tx: 66px; }
+.c1 .chips { display: inline-flex; gap: 4px; margin-top: 1px; }
+/* A node that has been silent for 60% of the stuck threshold: yellow, two fifths of the disc left. */
+.c1 .row.drain::before { background: conic-gradient(var(--amber) 0 40%, var(--bg) 40% 100%); box-shadow: inset 0 0 0 2px var(--amber); }
+.c1 .rail-v { position: absolute; left: 25px; top: 24px; bottom: 16px; width: 2px; border-radius: 1px; background: var(--stroke); }
+.c1 .elbow { position: absolute; left: 25px; width: 16px; height: 22px; border: solid var(--stroke); border-width: 0 0 2px 2px; border-radius: 0 0 0 10px; }
+.c1 .ended { display: flex; align-items: center; gap: 8px; margin-top: 8px; padding: 6px 16px 6px 44px; position: relative; font-weight: 500; color: var(--secondary); }
+.c1 .ended::before { content: ""; position: absolute; left: 21px; top: 11px; width: 10px; height: 10px; border-radius: 50%; box-shadow: inset 0 0 0 2px var(--stroke); }
+.c1 .ended b { color: var(--title); font-weight: 650; }
+.c1 .obar { display: inline-flex; gap: 2px; width: 56px; height: 5px; }
+.c1 .obar i { display: block; height: 5px; border-radius: 2px; background: var(--stroke); }
+.c1 .obar i.f { background: var(--title); }
+.c1 .ended .r { margin-left: auto; font-size: 13px; }
+.c1 .rail { display: flex; align-items: center; gap: 14px; padding: 9px 16px 10px; border-top: 1px solid var(--hair); font-size: 13px; color: var(--secondary); }
+.c1 .rail span { display: inline-flex; align-items: center; gap: 6px; }
+.c1 .rail b { font-weight: 600; color: var(--title); }
+
+/* ---- Concept 2: Tide Table ----------------------------------------------------------------- */
+.c2 .top { display: flex; align-items: center; height: 44px; padding: 0 10px 0 16px; gap: 8px; }
+.c2 .top .w { font-weight: 620; }
+.c2 .top .gear { margin-left: auto; }
+.c2 .axis { position: relative; margin: 0 16px; height: 22px; font-size: 13px; color: var(--secondary); }
+.c2 .axis span { position: absolute; top: 0; transform: translateX(-50%); }
+.c2 .chart { position: relative; padding: 4px 16px 14px; }
+.c2 .nowv { position: absolute; left: 50%; top: 0; bottom: 0; width: 2px; background: var(--rose); }
+.c2 .lane { position: relative; height: 44px; }
+.c2 .lane .lbl { position: absolute; top: 0; font-size: 13px; line-height: 18px; white-space: nowrap; }
+.c2 .lane .bar { position: absolute; top: 24px; height: 8px; border-radius: 4px; background: var(--stroke); }
+.c2 .past .lbl { right: calc(50% + 10px); text-align: right; font-size: 15px; font-weight: 560; max-width: 174px; overflow: hidden; text-overflow: ellipsis; }
+.c2 .past .bar { right: 50%; border-radius: 4px 0 0 4px; }
+.c2 .past .dur { position: absolute; top: 20px; font-size: 13px; color: var(--secondary); }
+.c2 .future .lbl { left: calc(50% + 10px); }
+.c2 .future .lbl b { font-weight: 650; }
+.c2 .future .bar { left: 50%; border-radius: 0 4px 4px 0; background: var(--track); overflow: hidden; }
+.c2 .future .bar i { display: block; height: 100%; }
+.c2 h4 { margin: 0; padding: 8px 16px 2px; font-size: 13px; font-weight: 650; display: flex; justify-content: space-between; }
+.c2 h4 span { font-weight: 420; color: var(--secondary); }
+
+/* ---- Concept 3: Orbit ---------------------------------------------------------------------- */
+.c3 .top { display: flex; align-items: center; height: 44px; padding: 0 10px 0 16px; }
+.c3 .top .gear { margin-left: auto; }
+.c3 .orbit { position: relative; width: 236px; height: 236px; margin: 0 auto; }
+.c3 .orbit svg { width: 236px; height: 236px; }
+.c3 .orbit circle { fill: none; stroke-width: 9; stroke-linecap: round; }
+.c3 .orbit .tr { stroke: var(--track); }
+.c3 .core { position: absolute; inset: 0; display: grid; place-items: center; text-align: center; }
+.c3 .core b { display: block; font-size: 44px; line-height: 1; font-weight: 600; font-variation-settings: "opsz" 32; letter-spacing: -.03em; }
+.c3 .core span { font-size: 13px; color: var(--secondary); }
+.c3 .legend { display: grid; grid-template-columns: 1fr 1fr; gap: 4px 16px; padding: 12px 16px 12px; font-size: 13px; border-bottom: 1px solid var(--hair); }
+.c3 .legend li { display: flex; align-items: baseline; gap: 6px; white-space: nowrap; }
+.c3 .legend i { width: 9px; height: 9px; border-radius: 50%; background: var(--c); flex: none; transform: translateY(1px); }
+.c3 .legend b { margin-left: auto; font-weight: 650; }
+.c3 .rows { padding: 8px 16px 12px; }
+.c3 .rows li { display: flex; gap: 10px; padding: 4px 0; }
+.c3 .rows i { flex: none; width: 10px; height: 10px; margin-top: 5px; border-radius: 50%; background: var(--c); }
+.c3 .rows .t { font-weight: 560; }
+.c3 .rows .m { margin-left: auto; font-size: 13px; color: var(--secondary); white-space: nowrap; line-height: 20px; }
+
+/* ---- Concept 4: Still Water ---------------------------------------------------------------- */
+.c4 { text-align: left; }
+.c4 .top { display: flex; align-items: center; height: 44px; padding: 0 10px 0 16px; }
+.c4 .top .gear { margin-left: auto; }
+.c4 .needs { padding: 6px 16px 18px; }
+.c4 .needs h3 { margin: 0 0 12px; font-size: 28px; line-height: 1.12; font-weight: 620; letter-spacing: -.02em; font-variation-settings: "opsz" 32; }
+.c4 .needs h3 em { font-style: normal; color: var(--rose-text); }
+.c4 .card { padding: 12px 14px; border-radius: 12px; background: var(--raised); }
+.c4 .card + .card { margin-top: 8px; }
+.c4 .card .k { font-size: 13px; font-weight: 650; }
+.c4 .card .k.asks { color: var(--rose-text); } .c4 .card .k.lim { color: var(--amber-text); }
+.c4 .card .t { font-weight: 560; margin-top: 2px; }
+.c4 .card .m { font-size: 13px; color: var(--secondary); margin-top: 2px; }
+.c4 .more li { display: flex; align-items: center; gap: 10px; padding: 11px 16px; border-top: 1px solid var(--hair); font-weight: 560; }
+.c4 .more li span { margin-left: auto; font-size: 13px; font-weight: 420; color: var(--secondary); }
+.c4 .more li svg { width: 12px; height: 12px; fill: none; stroke: var(--secondary); stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; }
+
+/* ---- Concept 5: Ledger --------------------------------------------------------------------- */
+.c5 .top { display: flex; align-items: center; gap: 8px; height: 44px; padding: 0 10px 0 16px; font-weight: 620; }
+.c5 .top .gear { margin-left: auto; }
+.c5 h4 { margin: 0; padding: 8px 16px 4px; font-size: 13px; font-weight: 650; color: var(--secondary); }
+.c5 .lr { display: grid; grid-template-columns: 92px 1fr 44px 74px; align-items: center; column-gap: 10px; padding: 0 16px; height: 26px; font-size: 13px; }
+.c5 .lr .n { font-size: 15px; font-weight: 560; white-space: nowrap; }
+.c5 .lr.sub .n { font-size: 13px; font-weight: 420; color: var(--secondary); }
+.c5 .lr .p { text-align: right; font-size: 15px; font-weight: 650; }
+.c5 .lr .dte { color: var(--secondary); white-space: nowrap; }
+.c5 .meter { position: relative; height: 6px; border-radius: 3px; background: var(--track); }
+.c5 .meter i { position: absolute; left: 0; top: 0; bottom: 0; border-radius: 3px; background: var(--c, var(--secondary)); }
+.c5 .meter u { position: absolute; top: -4px; bottom: -4px; width: 2px; border-radius: 1px; background: var(--title); box-shadow: 0 0 0 1.5px var(--bg); }
+.c5 .meter.unk { background: none; border-top: 2px dotted var(--stroke); height: 0; }
+.c5 .ar { display: grid; grid-template-columns: 1fr 56px 64px; align-items: start; column-gap: 10px; padding: 5px 16px; }
+.c5 .ar .t { font-weight: 560; }
+.c5 .ar .t small { display: block; font-size: 13px; font-weight: 420; color: var(--secondary); }
+.c5 .ar .meter { margin-top: 8px; }
+.c5 .ar .v { text-align: right; font-size: 13px; line-height: 20px; color: var(--secondary); white-space: nowrap; }
+.c5 .sep { height: 1px; margin: 8px 0 0; background: var(--hair); }
