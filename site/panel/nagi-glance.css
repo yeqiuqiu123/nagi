@@ -93,11 +93,12 @@ button.flag:hover { text-decoration: underline; text-decoration-thickness: 1.5px
 .acct:focus-visible { outline-offset: -2px; border-radius: 10px; }
 .acct-name { font-size: 13px; line-height: 17px; font-weight: 620; color: var(--title); white-space: nowrap; }
 .chips { display: inline-flex; gap: 4px; margin-top: 1px; }
-.as-of { margin-top: -3px; font-size: 13px; line-height: 16px; font-weight: 420; color: var(--secondary); white-space: nowrap; font-variant-numeric: tabular-nums; }
+.as-of { margin-top: -3px; font-size: 12px; line-height: 15px; font-weight: 420; color: var(--tertiary); white-space: nowrap; font-variant-numeric: tabular-nums; }
 .cells { display: flex; gap: 2px; }
 .cell { min-width: 62px; display: flex; flex-direction: column; align-items: center; font-size: 13px; line-height: 16px; white-space: nowrap; }
 .cell .w { font-weight: 520; color: var(--title); }
-.cell .d { font-weight: 420; color: var(--secondary); }
+/* Reset times sit back: smaller and in the quieter tone, so the % and window name lead. */
+.cell .d { font-size: 12px; line-height: 15px; font-weight: 420; color: var(--tertiary); }
 .cell.failed .w { font-weight: 480; letter-spacing: -.01em; }
 .cell.absent .w, .cell.checking .w { font-weight: 480; color: var(--secondary); }
 .dial { position: relative; width: 50px; height: 50px; margin-bottom: 5px; }
