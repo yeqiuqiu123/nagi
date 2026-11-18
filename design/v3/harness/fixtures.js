@@ -120,6 +120,13 @@
             claude: ok([account('claudeAgent', 'Claude 1', [win('seven_day', 'Weekly', 'weekly', 32, 2 * DAY + 11 * HOUR)], { secondaryWindows: [win('seven_day_fable', 'Weekly · Fable', 'weekly', 95, 2 * DAY + 11 * HOUR)] })]) }),
         source('cx', 'codex', 'This computer', agents([], [], { warnings: ['partial_coverage'] }), { codex: ok([account('codex-direct', 'Codex 1', [win('primary', 'Weekly', 'weekly', 87, DAY + 21 * HOUR)])]) }),
         source('cc', 'claude', 'This computer', agents([], [], { warnings: ['partial_coverage'] }), { claude: down() })];
+      case 'manywindows': {
+        // Review case: three sources, many windows each. The band scrolls; the list keeps its room.
+        const accounts = (n, base) => ok(Array.from({ length: n }, (_, i) => account('acc' + base + i, 'Codex ' + (base + i), [win('primary', 'Weekly', 'weekly', 20 + i * 9, (2 + base + i) * DAY)])));
+        return [t3(agents(tree({}), ended()), { codex: accounts(6, 1), claude: silent }),
+          source('t3b', 't3', 'Computer 2', agents([], []), { codex: accounts(6, 7), claude: silent }),
+          source('t3c', 't3', 'Computer 3', agents([], []), { codex: accounts(6, 13), claude: silent })];
+      }
       case 'sixdials':
       case 'multi': {
         const local = agents(tree({ asks: scene === 'multi', kestrel: scene === 'multi' ? 4 : 0.05, photos: 9 }), ended());

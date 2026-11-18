@@ -22,6 +22,8 @@
   let readerFailedAt = null;
   let firstRender = true; let opening = false;
   let endedOpen = false; let openDial = null; let openSource = null;
+  // Which detail opened last, so Esc closes that one first and returns focus to its trigger.
+  let lastOpened = null;
   let envelope = null; let view = null;
   let sheet = null;
   let lastOpen = null; let lastDials = null;
@@ -74,7 +76,7 @@
     if (vm.unread) {
       const down = (vm.rail || []).find((r) => r.state === 'down');
       const flag = h('button', { type: 'button', class: 'flag quiet', 'data-key': 'word:down', text: vm.unread + (vm.unread === 1 ? ' source down' : ' sources down') });
-      flag.addEventListener('click', () => { openSource = down.id; renderRail(vm); layout(); focusKey('src:' + down.id); });
+      flag.addEventListener('click', () => { openSource = down.id; lastOpened = 'src'; renderRail(vm); layout(); focusKey('src:' + down.id); });
       flags.push(flag);
     }
     $('flags').replaceChildren(...flags);
@@ -101,7 +103,7 @@
     if (cell.timeLeft != null) {
       const a = cell.timeLeft * 2 * Math.PI; const dx = Math.sin(a); const dy = -Math.cos(a);
       const at = (r) => ({ x: (25 + dx * r).toFixed(2), y: (25 + dy * r).toFixed(2) });
-      const from = at(DIAL_R - 5); const to = at(DIAL_R + 5.5);
+      const from = at(DIAL_R - 1); const to = at(DIAL_R + 6.5);
       s.append(svg('line', { class: 'tick-halo', x1: from.x, y1: from.y, x2: to.x, y2: to.y }));
       s.append(svg('line', { class: 'tick', x1: from.x, y1: from.y, x2: to.x, y2: to.y }));
     }
@@ -124,7 +126,7 @@
         // A value from an earlier check is grey and says when it was read, once for the group.
         g.asOf && h('span', { class: 'as-of', text: g.asOf }),
         g.sources.length > 0 && h('span', { class: 'chips' }, g.sources.map(chip)));
-      button.addEventListener('click', () => { openDial = open ? null : g.key; renderDials(vm); layout(); focusKey('dial:' + g.key); });
+      button.addEventListener('click', () => { openDial = open ? null : g.key; if (!open) lastOpened = 'dial'; renderDials(vm); layout(); focusKey('dial:' + g.key); });
       return button;
     }));
     // The exact lines for the chosen account: each window, its percent, its full reset date.
@@ -265,6 +267,7 @@
       h('span', { class: 'ended-line' }, h('b', { text: String(e.count) }), ' ended'),
       bar.children.length > 0 && bar,
       e.problems && h('span', { class: 'ended-problems', text: e.problems }),
+      e.more && h('span', { class: 'ended-problems', text: e.more }),
       h('span', { class: 'ended-span' }, e.span, chevron()));
     const desc = h('span', { class: 'sr', id: 'ended-desc', text: e.label + (e.split ? ' ' + e.split + '.' : '') });
     const list = h('ul', { class: 'ended-list', id: 'ended-list', hidden: !endedOpen },
@@ -297,7 +300,7 @@
       if (!r.detail) return h('span', { class: 'src ' + r.state, title: r.title, 'aria-label': r.said, role: 'img' }, inside);
       const open = openSource === r.id;
       const button = h('button', { type: 'button', class: 'src ' + r.state + (open ? ' is-open' : ''), 'data-key': 'src:' + r.id, title: r.title + ': ' + r.detail, 'aria-label': r.said, 'aria-expanded': String(open), 'aria-controls': 'rail-detail' }, inside);
-      button.addEventListener('click', () => { openSource = open ? null : r.id; renderRail(vm); layout(); focusKey('src:' + r.id); });
+      button.addEventListener('click', () => { openSource = open ? null : r.id; if (!open) lastOpened = 'src'; renderRail(vm); layout(); focusKey('src:' + r.id); });
       return button;
     }));
     const chosen = items.find((r) => r.id === openSource && r.detail);
@@ -605,8 +608,11 @@
     // Esc closes what is open, innermost first: the sheet, a detail, then the panel.
     if (sheet) closeSettings();
     else if (openDial || openSource) {
-      const key = openDial ? 'dial:' + openDial : 'src:' + openSource;
-      openDial = null; openSource = null;
+      // One Esc closes one detail: the one opened last, then the other.
+      const dial = openDial && (!openSource || lastOpened !== 'src');
+      const key = dial ? 'dial:' + openDial : 'src:' + openSource;
+      if (dial) openDial = null; else openSource = null;
+      lastOpened = openDial ? 'dial' : openSource ? 'src' : null;
       if (view) { renderDials(view.vm); renderRail(view.vm); layout(); focusKey(key); }
     } else native('close');
   });

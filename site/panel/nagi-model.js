@@ -214,7 +214,7 @@
           }
           // Windows that have already reset are never shown, on every render.
           const wins = [...(acc.windows || []), ...(acc.secondaryWindows || [])].map((w) => ({
-            label: w.label, kind: w.kind, left: percent(w.remainingPercent), resets: ms(w.resetsAt),
+            label: w.label, kind: w.kind, left: percent(w.remainingPercent), raw: Number(w.remainingPercent), resets: ms(w.resetsAt), checked: ms(w.checkedAt),
           })).filter((w) => w.resets != null && w.resets > ctx.now).sort((x, y) => x.left - y.left);
           if (!wins.length || accStatus === 'unavailable') {
             failed.push({ name: acc.label, pct: null, empty: false, date: tried, label: acc.label + ': ' + tried, subs: [],
@@ -224,7 +224,13 @@
           // `empty` needs fresh, unexpired evidence; a retained 0 is a dated percentage.
           const fresh = accStatus === 'ok' && ctx.limitsDownAt == null && !ctx.dated;
           const checked = ms(acc.checkedAt) || ms(src.checkedAt);
-          const asOf = accStatus === 'last_known' && ctx.limitsDownAt == null && !ctx.dated && checked != null ? 'as of ' + hm(checked) : '';
+          // A value that isn't fresh always says when it was read, and a later failed try says when.
+          // When the limits read itself failed, the note above the dials says it once; the
+          // detail still carries the time either way.
+          const readAt = !fresh && checked != null ? 'as of ' + hm(checked) : '';
+          const asOf = ctx.limitsDownAt == null ? readAt : '';
+          const attempt = ctx.limitsDownAt != null ? ctx.limitsDownAt : ms(src.attemptedAt);
+          const triedLater = !fresh && attempt != null && checked != null && attempt > checked ? 'tried ' + hm(attempt) : '';
           const isEmpty = (w) => fresh && w.left === 0;
           // Every limit line reads name, % left, date. A fresh empty window says `empty` and until when.
           const until = (w) => (isEmpty(w) ? 'until ' : '') + dateFrom(w.resets, ctx.now);
@@ -233,8 +239,9 @@
           // is fresh. A window at or under the alert level is low; a dated value is never low.
           const line = (w, name, sub) => ({ name, pct: w.left, empty: isEmpty(w), sub,
             date: until(w), stamp: asOf && wins.length === 1 ? asOf : '', label: (sub ? acc.label + ' ' : '') + name + ': ' + words(w) + (asOf ? ', ' + asOf : ''),
-            window: w.label, resets: w.resets, checked, when: whenShort(w.resets, ctx.now), timeLeft: timeLeft(w.kind, w.resets, ctx.now), dated: !fresh, asOf,
-            low: fresh && w.left > 0 && w.left <= ctx.alertAt });
+            window: w.label, resets: w.resets, checked, wchecked: w.checked || checked, tried: triedLater, readAt, when: whenShort(w.resets, ctx.now), timeLeft: timeLeft(w.kind, w.resets, ctx.now), dated: !fresh, asOf,
+            // Low compares the raw reading, as the alert does; only the shown number is rounded.
+            low: fresh && w.left > 0 && w.raw <= ctx.alertAt });
           const about = { provider: key, state: 'value', checked: fresh ? checked : null };
           if (wins.length === 1) {
             valued.push({ ...line(wins[0], acc.label, false), lowest: wins[0].left, subs: [], ...about });
@@ -252,7 +259,7 @@
       else if (status === 'unsupported') words = 'no limits for this account type';
       else if (!src || src.reason === 'checking') words = 'checking…';
       else if (src.reason === 'account_unverified') words = "its logs don't say which account";
-      else if (LIMIT_REASONS[src.reason]) words = LIMIT_REASONS[src.reason];
+      else if (LIMIT_REASONS[src.reason]) words = LIMIT_REASONS[src.reason] + (/_(expired|invalid)$/.test(src.reason) && ms(src.attemptedAt) != null ? ' · tried ' + hm(ms(src.attemptedAt)) : '');
       else words = "couldn't check · tried " + hm(ctx.limitsDownAt != null ? ctx.limitsDownAt : ms(src.attemptedAt) || ctx.now);
       const absentish = status === 'not_set_up' || status === 'unsupported' || (src && src.reason === 'account_unverified');
       const brief = status === 'not_set_up' ? ['not set up', ''] : status === 'unsupported' ? ['no limits', 'this account']
@@ -276,14 +283,14 @@
 
   // Dials: one group per account, one cell per window, from the same lines the detail prints.
   // Window names shorten to their last part (`Weekly · Fable` → `Fable`) unless that collides.
-  function dialGroups(lines, tag) {
+  function dialGroups(lines, tag, origin) {
     return (lines || []).map((l) => {
       // One window is one dial wherever it was read: provider, window name and reset instant,
       // the key the reader already uses so an alert is never delivered twice.
       const cell = (w, name, full) => ({ state: w.empty ? 'empty' : w.dated ? 'dated' : w.low ? 'low' : 'value', pct: w.pct, timeLeft: w.timeLeft,
         w: name, d: w.when, asOf: w.dated ? w.asOf : '', label: w.label,
-        key: [l.provider, full, Math.round(w.resets / 60000)].join('|'), fresh: !w.dated, checked: w.checked || 0,
-        row: { name: full, pct: w.pct, empty: w.empty, date: w.date + (w.dated && w.asOf ? ' · ' + w.asOf : '') } });
+        full, resets: w.resets, fresh: !w.dated, checked: w.wchecked || 0,
+        row: { name: full, pct: w.pct, empty: w.empty, date: [w.date, w.dated && w.readAt, w.tried].filter(Boolean).join(' · ') } });
       let cells;
       if (l.head) {
         const lasts = l.subs.map((x) => String(x.name).split(' · ').pop());
@@ -293,10 +300,10 @@
         cells = [cell(l, String(l.window || 'Limit').split(' · ').pop(), l.window || 'Limit')];
       } else {
         cells = [{ state: l.state || 'failed', pct: null, timeLeft: null, w: (l.short || [l.date])[0], d: (l.short || [])[1] || '', label: l.label,
-          key: null, fresh: false, checked: 0, row: { name: '', pct: null, empty: false, date: l.date } }];
+          full: null, resets: null, fresh: false, checked: 0, row: { name: '', pct: null, empty: false, date: l.date } }];
       }
       const rank = l.pct != null || l.head ? 0 : l.state === 'absent' ? 2 : 1;
-      return finishDial({ key: (tag ? tag.id + ':' : '') + (l.provider || '') + ':' + l.name, name: l.name, provider: l.provider || null, sources: tag ? [tag] : [],
+      return finishDial({ key: (tag ? tag.id + ':' : '') + (l.provider || '') + ':' + l.name, name: l.name, provider: l.provider || null, sources: tag ? [tag] : [], from: [origin == null ? 0 : origin],
         rank, lowest: l.lowest != null ? l.lowest : 101, cells, checked: l.checked != null ? l.checked : null });
     });
   }
@@ -310,20 +317,25 @@
     return g;
   }
   // Several sources: the same window read twice is one dial with both sources' chips. Nothing
-  // is averaged: the fresher reading shows. A failed read stays its own dial, with its source.
+  // is averaged: the fresher reading of each window shows. Only different sources merge, on
+  // provider, window name and a reset within a minute (sources round resets differently);
+  // one source's accounts are always distinct. A failed read stays its own dial.
+  const SAME_RESET_MS = 60000;
   function mergeDials(groups) {
-    const merged = []; const home = new Map();
+    const merged = [];
     const newer = (a, b) => (a.fresh && !b.fresh) || (a.fresh === b.fresh && a.checked > b.checked);
+    const shares = (a, b) => a.from.some((n) => b.from.includes(n));
+    const same = (a, b) => a.full != null && a.full === b.full && a.resets != null && b.resets != null && Math.abs(a.resets - b.resets) <= SAME_RESET_MS;
     for (const g of groups) {
-      const keys = g.cells.map((c) => c.key).filter(Boolean);
-      const into = keys.map((k) => home.get(k)).find(Boolean)
-        || (g.rank > 0 ? merged.find((m) => m.rank === g.rank && m.provider === g.provider && m.name === g.name && m.cells[0].w === g.cells[0].w && m.cells[0].d === g.cells[0].d) : null);
-      if (!into) { merged.push(g); keys.forEach((k) => home.set(k, g)); continue; }
+      const into = merged.find((m) => m.provider === g.provider && m.rank === g.rank && !shares(m, g) && (g.rank === 0
+        ? g.cells.some((c) => m.cells.some((x) => same(c, x)))
+        : m.name === g.name && m.cells[0].w === g.cells[0].w && m.cells[0].d === g.cells[0].d));
+      if (!into) { merged.push(g); continue; }
+      into.from.push(...g.from);
       g.sources.forEach((t) => { if (!into.sources.some((x) => x.id === t.id)) into.sources.push(t); });
       g.cells.forEach((c) => {
-        const at = c.key ? into.cells.findIndex((x) => x.key === c.key) : -1;
-        if (at < 0) { if (c.key) { into.cells.push(c); home.set(c.key, into); } }
-        else if (newer(c, into.cells[at])) into.cells[at] = c;
+        const at = into.cells.findIndex((x) => same(x, c));
+        if (at < 0) { if (c.full != null) into.cells.push(c); } else if (newer(c, into.cells[at])) into.cells[at] = c;
       });
       into.cells.sort((x, y) => x.pct - y.pct);
       into.lowest = Math.min(into.lowest, g.lowest);
@@ -630,7 +642,7 @@
     const all = [];
     const notes = [];
     items.forEach((i, n) => {
-      all.push(...dialGroups(i.vm.limits, many ? tags[n] : null));
+      all.push(...dialGroups(i.vm.limits, many ? tags[n] : null, n));
       if (i.vm.limitNote) notes.push((many ? tags[n].name + ': ' : '') + i.vm.limitNote);
     });
     const dials = mergeDials(all);
@@ -642,9 +654,17 @@
     // One Ended line. Its count sums each source's own count, leaving out a count that may
     // repeat another source's; every group stays tagged with the source that read it.
     let ended = null;
-    const withEnded = items.map((i, n) => ({ e: i.vm.ended, tag: many ? tags[n] : null, aside: extra && extra.maybeTwice ? extra.maybeTwice(i.s) : false })).filter((x) => x.e);
+    const withEnded = items.map((i, n) => ({ e: i.vm.ended, tag: many ? tags[n] : null, aside: extra && extra.maybeTwice ? extra.maybeTwice(i.s) : false, dated: many && i.vm.mode !== 'live' })).filter((x) => x.e);
     if (withEnded.length) {
-      const counted = withEnded.filter((x) => !x.aside);
+      // The headline counts fresh, source-local threads only. A count that may repeat another
+      // source's, or that comes from a source not read now, is named beside it, never added.
+      const counted = withEnded.filter((x) => !x.aside && !x.dated);
+      const twice = withEnded.filter((x) => x.aside && !x.dated);
+      const old = withEnded.filter((x) => x.dated);
+      const more = [
+        ...twice.map((x) => ({ short: '+' + x.e.count + ' in ' + (x.tag ? x.tag.name : 'another app'), said: x.e.count + ' more in ' + (x.tag ? x.tag.name : 'another app') + ', possibly also counted above' })),
+        ...old.map((x) => ({ short: '+' + x.e.count + ' dated', said: x.e.count + ' more from ' + (x.tag ? x.tag.name : 'a source') + ', not read just now' })),
+      ].filter((m) => !/^\+0 /.test(m.short));
       const sum = (fn) => counted.reduce((t, x) => t + fn(x.e), 0);
       const first = withEnded[0].e;
       const totals = { completed: sum((e) => e.totals.completed), failed: sum((e) => e.totals.failed), stopped: sum((e) => e.totals.stopped) };
@@ -653,8 +673,9 @@
       const count = sum((e) => e.count);
       const problems = [totals.failed ? totals.failed + ' failed' : '', totals.stopped ? totals.stopped + ' stopped' : ''].filter(Boolean).join(', ');
       ended = { count, span: first.span, since: first.since, totals, problems, groups,
+        more: more.map((m) => m.short).join(' · '),
         split: many ? '' : first.split,
-        label: count + ' ended since ' + first.since + (problems ? ': ' + problems : '') + '.' };
+        label: count + ' ended since ' + first.since + (problems ? ': ' + problems : '') + (more.length ? '; ' + more.map((m) => m.said).join('; ') : '') + '.' };
     }
     const rail = many ? items.map((i, n) => railItem(tags[n], i.s, i.vm)) : [];
     const said = items.map((i, n) => (i.vm.omitted ? (many ? tags[n].name + ': ' : '') + i.vm.omitted : '')).filter(Boolean);

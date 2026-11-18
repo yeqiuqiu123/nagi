@@ -24,7 +24,7 @@ const SHOTS = {
   'calm': ['calm'], 'asks-you': ['asks'], 'stuck': ['stuck'], 'asks-and-stuck-low-limits': ['both'], 'limits-low-and-empty': ['low'],
   'limits-could-not-check': ['limitsfail'], 'limits-dated': ['datedlimits'], 'cannot-reach-source': ['unreachable'], 'never-read': ['never'],
   'not-set-up': ['notsetup'], 'checking': ['checking'], 'nothing-running': ['quiet'], 'nothing-ran': ['nothing'],
-  'first-run-empty': ['first', closeSetup], 'overflow': ['overflow'], 'several-sources': ['multi'], 'six-dials': ['sixdials'], 'friends-evening': ['friend'],
+  'first-run-empty': ['first', closeSetup], 'overflow': ['overflow'], 'several-sources': ['multi'], 'six-dials': ['sixdials'], 'many-windows': ['manywindows'], 'friends-evening': ['friend'],
   'dial-detail': ['low', click('#dials .acct:nth-child(2)')], 'dial-detail-failed': ['limitsfail', click('#dials .acct:nth-child(2)')],
   'ended-open': ['calm', click('.ended-btn')], 'source-detail': ['multi', click('button.src.waiting')], 'no-sessions-yet': ['partial'],
   'settings': ['calm', click('#gear'), 690],

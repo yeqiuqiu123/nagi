@@ -409,7 +409,7 @@ test('a direct source names itself when it fails', () => {
 test('a Claude sign-in problem says what to do', () => {
   const vm = M.build(glance([], { status: 'quiet' }), limits({
     claude: { status: 'unavailable', attemptedAt: at(0), checkedAt: null, reason: 'claude_login_expired', warnings: [], data: null } }), { now: NOW });
-  assert.deepEqual(vm.limits.filter((l) => l.name === 'Claude').map((l) => [l.name, l.date]), [['Claude', 'open Claude Code to sign in again']]);
+  assert.deepEqual(vm.limits.filter((l) => l.name === 'Claude').map((l) => [l.name, l.date]), [['Claude', 'open Claude Code to sign in again · tried 06:05']]);
 });
 
 test('a Codex sign-in problem says what to do', () => {
@@ -478,7 +478,7 @@ test('dials: a failed read is a dashed ring with its time, never a value; a date
   // A sign-in the owner can fix says so, short under the ring and in full in the detail.
   const expired = one(limits({ claude: { status: 'unavailable', attemptedAt: at(1), checkedAt: null, reason: 'claude_login_expired', warnings: [], data: null } }).providers);
   const claude = expired.find((d) => d.name === 'Claude');
-  assert.deepEqual([claude.cells[0].state, claude.cells[0].w, claude.rows[0].date], ['failed', 'sign in again', 'open Claude Code to sign in again']);
+  assert.deepEqual([claude.cells[0].state, claude.cells[0].w, claude.rows[0].date], ['failed', 'sign in again', 'open Claude Code to sign in again · tried 06:04']);
   // A retained 0 is a dated 0%, grey, with the time it was read: never `empty`, never low.
   const stale = limits(); stale.providers.codex.status = 'last_known';
   const dated = one(stale.providers).find((d) => d.name === 'Codex 2');
@@ -546,10 +546,13 @@ test('several sources: one list and one Ended line, a rail that names what canno
   assert.equal(new Set(vm.dials.map((d) => d.key)).size, vm.dials.length);
   assert.match(codex[0].label, /read by T3 Code and Codex/);
   assert.equal(vm.unread, 1); // one source can't be reached: one short flag in the header
-  // One Ended line: counts summed from each source's own, groups tagged with their source.
-  assert.equal(vm.endedAll.count, 6);
-  assert.deepEqual(vm.endedAll.totals, { completed: 2, failed: 2, stopped: 2 });
-  assert.equal(vm.endedAll.problems, '2 failed, 2 stopped');
+  // One Ended line: the headline counts fresh sources only; the unreachable computer's
+  // retained count is named beside it, never added. Groups stay tagged with their source.
+  assert.equal(vm.endedAll.count, 3);
+  assert.deepEqual(vm.endedAll.totals, { completed: 1, failed: 1, stopped: 1 });
+  assert.equal(vm.endedAll.problems, '1 failed, 1 stopped');
+  assert.equal(vm.endedAll.more, '+3 dated');
+  assert.match(vm.endedAll.label, /3 more from T3 Code, not read just now/);
   assert.equal(vm.endedAll.span, '24 h');
   assert.deepEqual(vm.endedAll.groups.map((g) => g.source.chip).sort(), ['T3', 'T3·2']);
 });
@@ -557,7 +560,7 @@ test('several sources: one list and one Ended line, a rail that names what canno
 test('the same window read by two sources is one dial: the fresher reading shows, nothing is averaged, a failed read stays apart', () => {
   const tag = (id, harness) => ({ id, harness, label: 'This computer', placement: 'local' });
   const one = (left, checkedAgo, status) => ({ status: 'ok', attemptedAt: at(0), checkedAt: at(checkedAgo), reason: null, warnings: [],
-    data: { accounts: [{ id: 'c', label: 'Codex 1', status: status || 'ok', checkedAt: at(checkedAgo), windows: [win('primary', 'Weekly', left, 40)] }] } });
+    data: { accounts: [{ id: 'c', label: 'Codex 1', status: status || 'ok', checkedAt: at(checkedAgo), windows: [{ ...win('primary', 'Weekly', left, 40), checkedAt: at(checkedAgo) }] }] } });
   const env = (t3, cx, cc) => ({ version: 1, platform: 'linux', settings: { stuckMinutes: 15, endedExpiryHours: 24 }, warnings: [], sources: [
     { source: tag('a', 't3'), agents: glance([], { status: 'quiet' }).agents, limits: { codex: t3, claude: limits().providers.claude }, coverage: {}, warnings: [] },
     { source: tag('b', 'codex'), agents: glance([], { status: 'quiet' }).agents, limits: { codex: cx }, coverage: {}, warnings: [] },
@@ -588,4 +591,30 @@ test('an empty list is a mark and a few words, with the sentence as its detail',
   assert.deepEqual([say({ status: 'unavailable', reason: 'cannot_reach_t3' }).icon, say({ status: 'unavailable', reason: 'cannot_reach_t3' }).words], ['unplug', 'Not read yet']);
   assert.equal(say({ status: 'quiet', omitted: 2 }).words, 'Not fully read');
   assert.equal(M.build(glance([{ id: 'p', title: 'P', agents: [agent('A', 'running')] }], { counts: { running: 1 } }), limits(), { now: NOW }).say, null);
+});
+
+test('review fixes: one source keeps its accounts apart, the newer window wins, low follows the raw reading', () => {
+  const tag = (id, harness) => ({ id, harness, label: 'This computer', placement: 'local' });
+  const quiet = glance([], { status: 'quiet' }).agents;
+  const at6 = (left, checkedAgo, offsetMs) => ({ id: 'w', label: 'Weekly', kind: 'weekly', remainingPercent: left,
+    resetsAt: new Date(NOW + 40 * 3600000 + (offsetMs || 0)).toISOString(), checkedAt: at(checkedAgo) });
+  const ok = (accounts) => ({ status: 'ok', attemptedAt: at(0), checkedAt: at(0), reason: null, warnings: [], data: { accounts } });
+  // Two Codex accounts read by one T3, resets six seconds apart: two dials, each its own value.
+  const twoAccounts = ok([{ id: 'c1', label: 'Codex 1', checkedAt: at(1), windows: [at6(0, 1)] }, { id: 'c2', label: 'Codex 2', checkedAt: at(1), windows: [at6(70, 1, 6000)] }]);
+  const one = M.buildSources({ version: 1, platform: 'linux', settings: {}, warnings: [], sources: [
+    { source: tag('a', 't3'), agents: quiet, limits: { codex: twoAccounts }, coverage: {}, warnings: [] },
+    { source: tag('b', 'claude'), agents: quiet, limits: {}, coverage: {}, warnings: [] }] }, { now: NOW }).vm.dials.filter((d) => d.provider === 'codex');
+  assert.deepEqual(one.map((d) => [d.name, d.cells[0].pct]).sort(), [['Codex 1', 0], ['Codex 2', 70]]);
+  // Two sources, same window: each window's own check time decides, not the account's other windows.
+  const t3 = ok([{ id: 'c', label: 'Codex 1', checkedAt: at(1), windows: [at6(40, 1)] }]);
+  const cx = ok([{ id: 'c', label: 'Codex 1', checkedAt: at(12), windows: [at6(55, 8, 20000)] }]);
+  const both = M.buildSources({ version: 1, platform: 'linux', settings: {}, warnings: [], sources: [
+    { source: tag('a', 't3'), agents: quiet, limits: { codex: cx }, coverage: {}, warnings: [] },
+    { source: tag('b', 'codex'), agents: quiet, limits: { codex: t3 }, coverage: {}, warnings: [] }] }, { now: NOW }).vm.dials.filter((d) => d.provider === 'codex');
+  assert.deepEqual([both.length, both[0].cells[0].pct], [1, 40]);
+  // 10.4% left at a 10% alert is not low, though it shows as 10%.
+  const near = M.build(glance([], { status: 'quiet', settings: { limitAlertPercent: 10 } }),
+    limits({ codex: ok([{ id: 'c', label: 'Codex 1', checkedAt: at(1), windows: [at6(10.4, 1)] }]) }), { now: NOW });
+  const codex = near.limits.find((l) => l.provider === 'codex');
+  assert.deepEqual([codex.pct, codex.low], [10, false]);
 });

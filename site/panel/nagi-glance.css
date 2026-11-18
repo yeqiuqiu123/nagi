@@ -84,7 +84,9 @@ button.flag:hover { text-decoration: underline; text-decoration-thickness: 1.5px
 .status-sub[hidden] { display: none; }
 
 /* ---- Dials: one ring per limit window, set straight into the panel ------------------------ */
-.dials { display: flex; flex-wrap: wrap; gap: 6px 4px; padding: 0 10px 8px; }
+/* However many windows there are, the band never takes the list's room: past about two rows it scrolls. */
+.dials { display: flex; flex-wrap: wrap; gap: 6px 4px; padding: 0 10px 8px; max-height: 36vh; overflow-y: auto; overscroll-behavior: contain; scroll-snap-type: y proximity; }
+.dials > * { scroll-snap-align: start; }
 .dials[hidden] { display: none; }
 .acct { display: flex; flex-direction: column; align-items: center; gap: 5px; margin: 0; padding: 4px 2px 5px; border: 0; border-radius: 10px; background: transparent; }
 .acct:hover, .acct.is-open { background: var(--hover); }
@@ -121,7 +123,7 @@ button.flag:hover { text-decoration: underline; text-decoration-thickness: 1.5px
 .val.word { font-size: 13px; font-weight: 650; }
 .cell.failed .val.word, .cell.absent .val.word, .cell.checking .val.word { font-size: 17px; font-weight: 600; color: var(--secondary); }
 /* The chosen account's exact lines. */
-.dial-detail { margin: 0 12px 10px; padding: 9px 12px 8px; border-radius: 10px; background: var(--hover); }
+.dial-detail { margin: 0 12px 10px; padding: 9px 12px 8px; border-radius: 10px; background: var(--hover); max-height: 24vh; overflow-y: auto; overscroll-behavior: contain; }
 .dial-detail[hidden] { display: none; }
 .dd-head { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; margin-bottom: 3px; }
 .dd-name { font-size: 15px; font-weight: 600; color: var(--title); }
