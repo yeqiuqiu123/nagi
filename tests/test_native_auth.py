@@ -115,7 +115,7 @@ class NativeRecoveryTests(TestCase):
         glib.get_monotonic_time.side_effect=lambda:int(clock.now*1_000_000)
         gi=ModuleType('gi');gi.require_version=lambda *_:None
         repo=ModuleType('gi.repository')
-        for name,value in {'Gtk':gtk,'Gdk':MagicMock(),'Gio':MagicMock(),'GLib':glib,'WebKit2':MagicMock(),'AyatanaAppIndicator3':MagicMock()}.items():
+        for name,value in {'Gtk':gtk,'Gdk':MagicMock(),'GdkPixbuf':MagicMock(),'Gio':MagicMock(),'GLib':glib,'WebKit2':MagicMock(),'AyatanaAppIndicator3':MagicMock()}.items():
             setattr(repo,name,value)
         repo.WebKit2.WebView.return_value=web
         class ImmediateThread:

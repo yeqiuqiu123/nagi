@@ -145,3 +145,23 @@ class PanelAssets(TestCase):
             self.assertNotIn('<script>', text)
             self.assertNotIn('style=', text)
             self.assertNotIn('fixture', text)
+
+
+class TrayIconChoice(TestCase):
+    """One click opens the panel where the desktop allows it (an X11 tray icon)."""
+
+    def test_x11_uses_the_click_through_tray_icon(self):
+        import notifications
+        X11Display = type('X11Display', (), {})
+        WaylandDisplay = type('WaylandDisplay', (), {})
+        self.assertTrue(notifications.wants_tray_icon(X11Display()))
+        self.assertFalse(notifications.wants_tray_icon(WaylandDisplay()))
+        self.assertFalse(notifications.wants_tray_icon(None))
+
+    def test_tray_glyph_is_recoloured_and_checked(self):
+        import notifications
+        svg = notifications.tray_glyph_svg('#ffffff')
+        self.assertIn('fill="#ffffff"', svg)
+        self.assertNotIn('#bebebe', svg)
+        with self.assertRaises(ValueError):
+            notifications.tray_glyph_svg('red"/><script')
