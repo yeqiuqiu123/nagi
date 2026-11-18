@@ -142,10 +142,45 @@ def read_state(origin, transport=None):
         return strict_json_loads(response.read(8*1024*1024+1),8*1024*1024,max_depth=160)
 
 
+RESTART_DELAY=3
+RESTART_WINDOW=60
+RESTART_LIMIT=5
+
+
+def supervise(spawn, sleep, clock, stopping):
+    """At login: run the tray as a child and start it again if it crashes. It lives inside the
+    desktop session, so logout ends it with everything else. Quit Nagi (0) and "already
+    running" (2) end it too, as does a crash loop: five crashes inside a minute."""
+    crashes=[]
+    while True:
+        code=spawn()
+        if code in (0,2) or stopping():
+            return code
+        now=clock()
+        crashes=[at for at in crashes if now-at<RESTART_WINDOW]+[now]
+        if len(crashes)>=RESTART_LIMIT:
+            return code
+        sleep(RESTART_DELAY)
+
+
 def main():
     parser=argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--port',type=int,default=47831)
+    parser.add_argument('--login',action='store_true',help='started by the login entry: restart the tray if it crashes')
     args=parser.parse_args()
+    if args.login:
+        import signal,subprocess,time
+        state={'child':None,'stopping':False}
+        def forward(signum,_frame):
+            state['stopping']=True
+            if state['child'] is not None and state['child'].poll() is None:
+                state['child'].send_signal(signum)
+        signal.signal(signal.SIGTERM,forward)
+        signal.signal(signal.SIGINT,forward)
+        def spawn():
+            state['child']=subprocess.Popen([sys.executable,'-B',str(Path(__file__).resolve()),'--port',str(args.port)],stdin=subprocess.DEVNULL)
+            return state['child'].wait()
+        return supervise(spawn,time.sleep,time.monotonic,lambda:state['stopping'])
     from notifications import run
     return run(args.port)
 

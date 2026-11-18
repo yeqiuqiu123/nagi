@@ -102,19 +102,12 @@ install_linux() {
             'If that does not help, see: systemctl --user status nagi-reader.service'
     ok 'Reader running this version'
 
-    # The tray starts with your desktop. An existing autostart entry is kept as it is.
-    local autostart="$HOME/.config/autostart/local.nagi.tray.desktop"
-    if [[ ! -e "$autostart" ]]; then
-        mkdir -p "$(dirname "$autostart")"
-        local exec_line
-        exec_line="$(printf '%q ' "$(command -v "$py")" -B "$ROOT/linux/tray.py" --port "$PORT")"
-        printf '[Desktop Entry]\nType=Application\nName=Nagi\nComment=What your agents are doing, at a glance\nExec=%s\nTerminal=false\nX-GNOME-Autostart-enabled=true\n' "${exec_line% }" > "$autostart"
-    fi
-    ok 'Nagi starts with your desktop'
-
+    # Nagi's login entry (written by install_reader.py) starts the tray under a small supervisor
+    # that restarts it after a crash; an entry you switched off stays switched off.
+    ok 'Nagi starts with your desktop and restarts if it crashes'
     if (( LAUNCH )); then
-        # A running tray keeps its single instance; a second start simply exits.
-        setsid -f "$py" -B "$ROOT/linux/tray.py" --port "$PORT" >/dev/null 2>&1 < /dev/null || true
+        # A tray that is already open keeps its single instance; this start then simply ends.
+        setsid -f "$py" -B "$ROOT/linux/tray.py" --port "$PORT" --login >/dev/null 2>&1 < /dev/null || true
         ok 'Nagi is open: look for 凪 in the top bar'
     fi
 }

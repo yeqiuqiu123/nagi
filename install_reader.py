@@ -46,6 +46,87 @@ def write_private(path, body, home):
         stream.write(body)
 
 
+LOGIN_ENTRY = '.config/autostart/local.nagi.tray.desktop'
+
+
+def desktop_quote(value):
+    """One Exec argument, in both layers of the Desktop Entry spec: the Exec quoting
+    (backslash before backslash, double quote, backtick and dollar, inside double quotes;
+    %% for %), then the key-file string escape (each backslash doubled)."""
+    exec_arg = '"' + value.replace('\\', '\\\\').replace('"', '\\"').replace('`', '\\`').replace('$', '\\$') + '"'
+    return exec_arg.replace('\\', '\\\\').replace('%', '%%')
+
+
+def login_entry_disabled(text):
+    """The owner switched Nagi's login entry off in [Desktop Entry]: keep that choice."""
+    group = None
+    for line in text.splitlines():
+        line = line.strip()
+        if line.startswith('[') and line.endswith(']'):
+            group = line
+        elif group == '[Desktop Entry]' and '=' in line:
+            key, value = (part.strip() for part in line.split('=', 1))
+            if (key == 'Hidden' and value == 'true') or (key == 'X-GNOME-Autostart-enabled' and value == 'false'):
+                return True
+    return False
+
+
+def open_home_directory(home, relative):
+    """A descriptor for home/relative, walking one component at a time and never through a
+    symlink, so a symlinked ~/.config or ~/.config/autostart can't send a write elsewhere.
+    Desktops often make these folders group-writable, so only ownership is checked."""
+    fd = os.open(home, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+    try:
+        for part in Path(relative).parts:
+            try:
+                os.mkdir(part, 0o700, dir_fd=fd)
+            except FileExistsError:
+                pass
+            child = os.open(part, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=fd)
+            os.close(fd)
+            fd = child
+            if os.fstat(fd).st_uid != os.getuid():
+                raise ValueError('Installation paths must be yours')
+        return fd
+    except BaseException:
+        os.close(fd)
+        raise
+
+
+def write_login_entry(home, executable, port):
+    """Nagi's login entry runs `tray.py --login`: a small supervisor, living as long as the
+    desktop session, that restarts the tray after a crash. An entry that isn't Nagi's, or
+    that was switched off in [Desktop Entry], is left as it is."""
+    folder, name = os.path.split(LOGIN_ENTRY)
+    command = [executable, '-B', str(ROOT / 'linux/tray.py'), '--port', str(port), '--login']
+    body = ('[Desktop Entry]\nType=Application\nName=Nagi\nComment=What your agents are doing, at a glance\n'
+            'Exec=' + ' '.join(map(desktop_quote, command)) + '\nTerminal=false\nNoDisplay=true\nX-GNOME-Autostart-enabled=true\n')
+    parent = open_home_directory(home, folder)
+    try:
+        try:
+            fd = os.open(name, os.O_RDONLY | os.O_NOFOLLOW, dir_fd=parent)
+        except FileNotFoundError:
+            pass
+        else:
+            with os.fdopen(fd, 'rb') as stream:
+                text = stream.read(65536).decode(errors='replace')
+            if 'linux/tray.py' not in text or login_entry_disabled(text):
+                return None
+        # Replace atomically beside it, never following a link.
+        temp = '.' + name + '.tmp'
+        try:
+            os.unlink(temp, dir_fd=parent)
+        except FileNotFoundError:
+            pass
+        fd = os.open(temp, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600, dir_fd=parent)
+        with os.fdopen(fd, 'wb') as stream:
+            stream.write(body.encode())
+        os.replace(temp, name, src_dir_fd=parent, dst_dir_fd=parent)
+        return home / LOGIN_ENTRY
+    finally:
+        os.close(parent)
+
+
 def install(platform, directory, port, executable, home):
     if platform not in ('linux', 'darwin') or not 1024 <= port <= 65535:
         raise ValueError('Expected Linux or macOS and a nonprivileged port')
@@ -75,13 +156,17 @@ def install(platform, directory, port, executable, home):
         target = home / '.config/systemd/user/nagi-reader.service'
         def quote(value):
             return '"' + value.replace('\\', '\\\\').replace('"', '\\"').replace('%', '%%').replace('\n', '\\n') + '"'
+        def arg_quote(value):
+            # systemd expands ${VAR} in arguments even inside quotes ($$ is a literal $); the
+            # executable is looked up literally, so it keeps its $.
+            return quote(value).replace('$', '$$')
         template = (ROOT / 'linux/nagi-reader.service.in').read_text()
-        body = template.replace('@COMMAND@', ' '.join(map(quote, command))).replace('@DATA_ENV@', quote('NAGI_DATA_DIR=' + str(directory))).replace('@PATH_ENV@', quote('PATH=' + cli_path)).encode()
+        body = template.replace('@COMMAND@', ' '.join([quote(command[0]), *map(arg_quote, command[1:])])).replace('@DATA_ENV@', quote('NAGI_DATA_DIR=' + str(directory))).replace('@PATH_ENV@', quote('PATH=' + cli_path)).encode()
     write_private(target, body, home)
+    if platform == 'linux':
+        write_login_entry(home, executable, port)
     if platform=='linux':
         # Stable notification identity: GNOME rejects unknown per-process app IDs.
-        def desktop_quote(value):
-            return '"'+value.replace('\\','\\\\').replace('"','\\"').replace('`','\\`').replace('$','\\$').replace('%','%%')+'"'
         desktop_command=[executable,'-B',str(ROOT/'linux/tray.py'),'--port',str(port)]
         desktop=(ROOT/'linux/local.nagi.notifications.desktop.in').read_text().replace('@COMMAND@',' '.join(map(desktop_quote,desktop_command)))
         write_private(home/'.local/share/applications/local.nagi.notifications.desktop',desktop.encode(),home)
