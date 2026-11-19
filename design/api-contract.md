@@ -177,18 +177,42 @@ Machine readings failing do not blank subscription limits. No process/hostnames.
 
 ## GET /api/settings; POST /api/settings
 
-GET: `{version:2,settings:{endedExpiryHours:24,stuckMinutes:15},
- defaults:{endedExpiryHours:24,stuckMinutes:15},warnings:[]}` before customization.
+GET before customization:
+`{version:2,settings:{endedExpiryHours:24,stuckMinutes:15,limitAlertPercent:10,
+ theme:{name:"violet",appearance:"system",colors:{}}},defaults:<same>,warnings:[]}`.
 `settings` contains current effective values; `defaults` always contains the
-factory values. `/api/glance.settings` contains just the effective values.
+factory values. `/api/glance.settings` and `/api/sources/v1/glance.settings` contain
+just the effective values. Every GET shape always includes `theme`.
 
-POST exact JSON `{endedExpiryHours:int,stuckMinutes:int}` replaces both values.
+POST JSON `{endedExpiryHours:int,stuckMinutes:int,limitAlertPercent?:int|"off",theme?:theme}`.
 Validate types first: booleans, strings, nulls, fractional numbers, missing and
 unknown keys are 400; no partial write. Clamp integer endedExpiryHours to **1..168**
-and stuckMinutes to **5..120**, inclusive, before persistence. Return the same GET
-shape with normalized values, so the UI reflects any clamping. Duplicate keys,
-nonfinite numbers, origin/peer/auth denials retain the common error outcomes.
-POST is the write method; PUT remains 405 after owner authentication.
+and stuckMinutes to **5..120**, inclusive, before persistence. limitAlertPercent is
+an integer 1..50 or `"off"` (omitted means 10). Return the same GET shape with
+normalized values, so the UI reflects any clamping. Duplicate keys, nonfinite
+numbers, origin/peer/auth denials retain the common error outcomes. POST is the
+write method; PUT remains 405 after owner authentication.
+
+`theme` is the panel's look (`design/themes/creative-direction.md`), validated
+exactly; anything else is 400 `Invalid local settings` with nothing written:
+
+- exact keys `{name,appearance,colors}`, no extras;
+- `name`: `"violet"` | `"graphite"` | `"tide"`;
+- `appearance`: `"system"` | `"light"` | `"dark"`;
+- `colors`: an object (never a list) whose keys are a subset of
+  `accent`, `claude`, `codex`, `gemini`, `t3`, each value a string matching
+  `#[0-9a-f]{6}` exactly (lowercase, six digits). Status colours (rose, yellow,
+  green, red, blue) and the greys are not roles and cannot be set.
+
+`theme` is optional on POST. A body without it (an older panel, the Mac app) keeps
+the stored theme unchanged; a body with it replaces the stored theme whole. The
+reader stores the picked seed colours as given; it does not judge contrast. The
+panel's `NagiTheme` (web/glance-theme.js) derives the drawn marks and words from
+each seed when it applies a theme, nudges a low-contrast pick and refuses a
+provider pick that lands on rose or yellow, so a hand-edited file gets the same
+treatment as a pick in the sheet. A settings file with no `theme` (every file
+written before themes) reads as the default theme and is not rewritten until the
+next authorized POST.
 
 Atomic 0600 `nagi-settings.json` persistence under the shared per-machine data dir.
 No restart: a successful POST invalidates the poll throttle; the next feed check

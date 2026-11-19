@@ -3,6 +3,7 @@ from datetime import datetime, timezone
 import hashlib
 import json
 import copy
+import re
 import secrets
 import threading
 import time
@@ -12,8 +13,15 @@ from agents_projection import stamp,text,display
 from nagi_store import LocalStore
 from t3_reader import T3Reader
 
-DEFAULTS={'endedExpiryHours':24,'stuckMinutes':15,'limitAlertPercent':10}
+DEFAULTS={'endedExpiryHours':24,'stuckMinutes':15,'limitAlertPercent':10,
+          'theme':{'name':'violet','appearance':'system','colors':{}}}
 BOUNDS={'endedExpiryHours':(1,168),'stuckMinutes':(5,120)}
+# The panel's look (design/themes/creative-direction.md). Only these names, appearances and
+# colour roles exist; status colours (rose, yellow, green, red, blue) can never be set.
+THEME_NAMES=('violet','graphite','tide')
+THEME_APPEARANCES=('system','light','dark')
+THEME_ROLES=('accent','claude','codex','gemini','t3')
+THEME_COLOR=re.compile(r'#[0-9a-f]{6}')
 JOURNAL='nagi-agent-state.json'
 
 
@@ -69,12 +77,12 @@ class AgentsService:
 
     def settings_info(self):
         try:
-            value=self.store.read('nagi-settings.json',dict(DEFAULTS))
+            value=self.store.read('nagi-settings.json',copy.deepcopy(DEFAULTS))
             if isinstance(value,dict) and set(value)=={'stuckAfterSeconds','endedWithinHours'}:
                 if any(type(item) is not int for item in value.values()):raise ValueError()
                 value={'stuckMinutes':(value['stuckAfterSeconds']+59)//60,'endedExpiryHours':value['endedWithinHours']}
             return self.validate_settings(value),False
-        except (OSError,ValueError,TypeError,RecursionError):return dict(DEFAULTS),True
+        except (OSError,ValueError,TypeError,RecursionError):return copy.deepcopy(DEFAULTS),True
 
     def settings(self):return self.settings_info()[0]
 
@@ -83,7 +91,7 @@ class AgentsService:
         return (['settings_invalid'] if self.settings_info()[1] else [])+(['journal_reset'] if self.journal_warning else [])
 
     def settings_resource(self):
-        return {'version':2,'settings':self.settings(),'defaults':dict(DEFAULTS),'warnings':self.warnings()}
+        return {'version':2,'settings':self.settings(),'defaults':copy.deepcopy(DEFAULTS),'warnings':self.warnings()}
 
     @staticmethod
     def validate_journal(value):
@@ -162,24 +170,41 @@ class AgentsService:
         return self.store.mutate(self.journal_name,{},apply,repair=repair,validate=self.validate_journal)
 
     @staticmethod
+    def validate_theme(value):
+        """Exact {name,appearance,colors}; colors maps known roles to lowercase #rrggbb."""
+        if type(value) is not dict or set(value)!={'name','appearance','colors'}:raise ValueError('Invalid local settings')
+        name,appearance,colors=value['name'],value['appearance'],value['colors']
+        if type(name) is not str or name not in THEME_NAMES:raise ValueError('Invalid local settings')
+        if type(appearance) is not str or appearance not in THEME_APPEARANCES:raise ValueError('Invalid local settings')
+        if type(colors) is not dict or not set(colors)<=set(THEME_ROLES):raise ValueError('Invalid local settings')
+        if any(type(hex_) is not str or not THEME_COLOR.fullmatch(hex_) for hex_ in colors.values()):raise ValueError('Invalid local settings')
+        return {'name':name,'appearance':appearance,'colors':{role:colors[role] for role in THEME_ROLES if role in colors}}
+
+    @staticmethod
     def validate_settings(value):
-        if not isinstance(value,dict) or set(value) not in (set(DEFAULTS),set(BOUNDS)):
+        if not isinstance(value,dict) or set(value)-{'theme'} not in (set(DEFAULTS)-{'theme'},set(BOUNDS)):
             raise ValueError('Invalid local settings')
         if any(type(value[key]) is not int for key in BOUNDS):raise ValueError('Invalid local settings')
         alert=value.get('limitAlertPercent',10)
         if alert!='off' and (type(alert) is not int or not 1<=alert<=50):raise ValueError('Invalid local settings')
-        return {key:max(low,min(high,value[key])) for key,(low,high) in BOUNDS.items()}|{'limitAlertPercent':alert}
+        # A file or body without a theme reads as the default theme.
+        theme=AgentsService.validate_theme(value['theme']) if 'theme' in value else copy.deepcopy(DEFAULTS['theme'])
+        return {key:max(low,min(high,value[key])) for key,(low,high) in BOUNDS.items()}|{'limitAlertPercent':alert,'theme':theme}
 
     def save_settings(self,value):
+        # A body without theme (an older panel, the Mac app) keeps the stored theme.
+        keep_theme=isinstance(value,dict) and 'theme' not in value
         value=self.validate_settings(value)
         with self.lock:
-            def write(current):current.clear();current.update(value)
-            self.store.mutate('nagi-settings.json',dict(DEFAULTS),write,repair=True,validate=self.validate_settings)
+            def write(current):
+                if keep_theme:value['theme']=self.validate_settings(current)['theme']
+                current.clear();current.update(copy.deepcopy(value))
+            self.store.mutate('nagi-settings.json',copy.deepcopy(DEFAULTS),write,repair=True,validate=self.validate_settings)
             def repaired(journal):journal.pop('recovered',None)
             self.mutate_journal(repaired)
             self.journal_warning=False;self.revision+=1
             self.last_poll=None
-        return dict(value)
+        return copy.deepcopy(value)
 
     def poll(self,force=False):
         if not self.poll_gate.acquire(blocking=False):return
