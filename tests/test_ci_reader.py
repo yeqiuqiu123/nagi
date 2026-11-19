@@ -16,7 +16,7 @@ import machine
 from agents_service import AgentsService, outcome
 from ci_service import CI_SOURCE_ID, CIService
 from ci_workspace import PREFERENCE
-from github_ci import GitHubError
+from github_ci import GitHubError, ready_to_merge
 from install_reader import install
 from owner_auth import OwnerAuth, authenticated_open
 import server
@@ -116,6 +116,9 @@ if args[1] == 'graphql':
                          'tipDeployments':connection([deploy])},
             'associatedPullRequests':connection([{'number':17,'headRefOid':sha,'repository':{'nameWithOwner':repo},'statusCheckRollup':None}])}
         data = {'ref':None if options.get('deleted_branch') else ref, 'deployments':connection([])}
+        if options.get('deploy_incomplete'):
+            ref['target']['tipDeployments'] = connection([])
+            data['deployments']['pageInfo']['hasNextPage'] = True
         if 'ended=true' in args:
             data['historical'] = connection([dict(pull(branch), state='MERGED', title=options['unsafe_title'])])
         print(json.dumps({'data':{'repository':data}}))
@@ -295,9 +298,9 @@ def test_attention_prs_and_ended_results_include_merge_state(fake_cli, local_rea
     poll(source)
     repoll(source)
     pulls = api(CI+'/pulls')['pulls']['data']
-    assert pulls['count'] == 3 and pulls['omitted'] is False
+    assert pulls['count'] == 4 and pulls['omitted'] is False
     assert {row['number']:row['why'] for row in pulls['rows']} == {
-        17:'review_requested',18:'ready_to_merge',19:'changes_requested'}
+        17:'review_requested',18:'ready_to_merge',19:'changes_requested',20:'ready_to_merge'}
     ended = api(CI+'/ended')['ended']['data']
     assert ended['rows'] == [{'agentId':'c','repo':'demo/kestrel','number':17,
                                'title':'Pull request #17','url':'https://github.com/demo/kestrel/pull/17',
@@ -504,6 +507,42 @@ def test_fast_polls_are_branch_local_and_expire_for_stalled_work(scheduled_ci):
     assert ci.branches[ended].due == 1200
     assert ci.branches[running].due == ci.branches[deploying].due == 720
     assert run(720) == {running, deploying, passing}
+
+
+def test_incomplete_deployment_does_not_back_off_running_ci(fake_cli, local_reader):
+    source, api, _ = local_reader
+    _, set_response = fake_cli
+    set_response(ci='running', deploy_incomplete=True)
+    api(CI+'/settings', {'enabled':True})
+    poll(source)
+    repoll(source)
+    row = api(CI)['ci']['data']['rows'][0]
+    assert row['ci']['data']['state'] == 'running'
+    assert row['deploy']['status'] == 'unavailable'
+    assert row['deploy']['reason'] == 'coverage_incomplete'
+
+    set_response(ci='passed')
+    source.ci.monotonic.now += 30
+    source.ci.schedule()
+    source.ci.future.result(timeout=8)
+    row = api(CI)['ci']['data']['rows'][0]
+    assert row['ci']['data']['state'] == 'passed'
+    assert row['deploy']['reason'] == 'coverage_incomplete'
+
+
+@pytest.mark.parametrize('review, merge_state, ci, expected', [
+    (None, 'CLEAN', 'passed', True),
+    (None, 'CLEAN', 'none', True),
+    (None, 'CLEAN', 'failed', False),
+    (None, 'HAS_HOOKS', 'passed', False),
+    ('CHANGES_REQUESTED', 'CLEAN', 'passed', False),
+    ('REVIEW_REQUIRED', 'CLEAN', 'passed', False),
+    ('APPROVED', 'HAS_HOOKS', 'passed', True),
+])
+def test_merge_readiness_respects_solo_and_required_review_rules(review, merge_state, ci, expected):
+    pull = {'reviewDecision': review, 'mergeStateStatus': merge_state, 'mergeable': 'MERGEABLE'}
+    assert ready_to_merge(pull, ci) is expected
+    assert not ready_to_merge(dict(pull, mergeable='CONFLICTING'), ci)
 
 
 def test_a_bad_repo_has_its_own_backoff(scheduled_ci):

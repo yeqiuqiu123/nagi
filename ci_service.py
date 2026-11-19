@@ -360,28 +360,28 @@ class CIService:
             history_reason = check if wants_history else None
 
         row = None
-        reason = None
+        ci_reason = None
         busy = False
         if check is not None:
             previous = (prior.row or {}) if prior else {}
             ci = failure(check, at, previous.get('ci')) if isinstance(check, str) else observe(at, check)
             deployment = failure(deploy, at, previous.get('deploy')) if isinstance(deploy, str) else observe(at, deploy)
             row = {'repo': repo, 'branch': branch, 'pr': pr, 'ci': ci, 'deploy': deployment}
-            reason = ci['reason'] or deployment['reason']
+            ci_reason = ci['reason']
             checks = ci['data'] or {}
             busy = (checks.get('state') == 'running' or checks.get('running', 0) > 0
                     or (deployment['data'] or {}).get('state') in RUNNING_DEPLOYS)
         # An intermittent failure cannot restart the fast-poll budget for
         # the same pending tip.
-        clock_sha = sha or (prior.sha if reason and prior else None)
+        clock_sha = sha or (prior.sha if ci_reason and prior else None)
         pending_since = prior.running_since if prior and prior.sha==clock_sha else None
         if busy and pending_since is None:
             pending_since = started
-        if not busy and not reason:
+        if not busy and not ci_reason:
             pending_since = None
 
-        failures = min((prior.failures if prior else 0) + 1, 6) if reason else 0
-        delay = (watch_delay(active, reason, failures) if reason
+        failures = min((prior.failures if prior else 0) + 1, 6) if ci_reason else 0
+        delay = (watch_delay(active, ci_reason, failures) if ci_reason
                  else ENDED if not active
                  else FAST if busy and started-pending_since < FAST_WINDOW else SETTLED)
         return BranchRead(active, wants_history, started+delay, failures, clock_sha, pending_since,

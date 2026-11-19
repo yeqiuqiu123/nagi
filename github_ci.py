@@ -377,8 +377,11 @@ def pull_summary(pr, repo):
 
 
 def ready_to_merge(pr, ci):
-    return (pr['reviewDecision'] == 'APPROVED' and pr['mergeable'] == 'MERGEABLE'
-            and pr['mergeStateStatus'] in ('CLEAN', 'HAS_HOOKS')
+    decision = pr['reviewDecision']
+    merge_state = pr['mergeStateStatus']
+    review_ready = decision == 'APPROVED' or (decision is None and merge_state == 'CLEAN')
+    return (review_ready and pr['mergeable'] == 'MERGEABLE'
+            and merge_state in ('CLEAN', 'HAS_HOOKS')
             and ci in ('passed', 'none'))
 
 

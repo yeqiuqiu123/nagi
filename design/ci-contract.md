@@ -76,8 +76,10 @@ historical PR. Active branches poll every 30 seconds while work is pending,
 for up to 10 minutes per continuous pending period on the same tip. Other
 active branches poll every 120 seconds, and ended-only branches every 10
 minutes. The PR attention feed polls separately per repository on the settled
-or ended cadence. Failures back off per branch or repository. Rate limiting,
-sign-out and a failure across all watched branches pause the GitHub batch.
+or ended cadence. CI failures back off per branch and PR attention failures
+back off per repository. CI keeps its polling cadence when only
+the deployment read fails. Rate limiting, sign-out and a failure across all watched branches
+pause the GitHub batch.
 Sign-out retries stay within three minutes.
 Requests use read-only GitHub CLI subprocesses with explicit GitHub host,
 bounded output and timeouts, and no inherited credential variables, diagnostic
@@ -115,11 +117,12 @@ actionable PRs. When omitted is true, present the count as partial. Consider
 non-draft open PRs in watched repositories when their head matches a watched
 branch or the GitHub CLI's signed-in viewer authored them. Reasons in priority
 order are an outstanding personal review request (`review_requested`), a
-changes-requested decision (`changes_requested`), and an approved, mergeable
-PR whose merge state permits merging and whose CI has passed or has no checks
-(`ready_to_merge`). A row has
-`{repo,number,title,url,why,ci,updatedAt}`. CI is the row's CI state string or
-null if unavailable. Titles are short sanitized GitHub text, with a generic
+changes-requested decision (`changes_requested`), and a mergeable PR with
+passing or absent checks (`ready_to_merge`). Readiness requires approval and
+a `CLEAN` or `HAS_HOOKS` merge state, or no review decision and a `CLEAN`
+merge state. A required review or requested changes prevents merge readiness.
+A row has `{repo,number,title,url,why,ci,updatedAt}`. CI is the row's CI state
+string or null if unavailable. Titles are short sanitized GitHub text, with a generic
 PR label when unsafe. Only a successful outcome may contribute a count to
 asks-you. The feed shares CI opt-in, polling and closed reasons. It samples up to 50
 updated open PRs per watched repository and returns at most 100 attention rows.
