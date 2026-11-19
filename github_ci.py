@@ -17,26 +17,33 @@ query($owner: String!, $repo: String!, $ref: String!, $branch: String!, $ended: 
       target {
         ... on Commit {
           oid
-          statusCheckRollup {
-            contexts(first: 100) {
-              pageInfo { hasNextPage }
-              nodes {
-                __typename
-                ... on CheckRun { status conclusion completedAt startedAt }
-                ... on StatusContext { state createdAt }
-              }
-            }
-          }
+          statusCheckRollup { ...CheckContexts }
         }
       }
-      associatedPullRequests(first: 10, states: [OPEN], orderBy: {field: UPDATED_AT, direction: DESC}) {
-        nodes { number headRefOid isCrossRepository }
+      associatedPullRequests(first: 1, states: [OPEN], orderBy: {field: UPDATED_AT, direction: DESC}) {
+        nodes {
+          number headRefOid repository { nameWithOwner }
+          statusCheckRollup { ...CheckContexts }
+        }
       }
     }
     historical: pullRequests(first: 20, headRefName: $branch,
       orderBy: {field: UPDATED_AT, direction: DESC}) @include(if: $ended) {
       pageInfo { hasNextPage }
       nodes { ...PullSummary }
+    }
+  }
+}
+"""
+
+CHECK_CONTEXTS = """
+fragment CheckContexts on StatusCheckRollup {
+  contexts(first: 100) {
+    pageInfo { hasNextPage }
+    nodes {
+      __typename
+      ... on CheckRun { status conclusion completedAt startedAt }
+      ... on StatusContext { state createdAt }
     }
   }
 }
@@ -162,7 +169,7 @@ class GitHub:
 
     def checks(self, repo, branch, ended=False):
         owner, name = repo.split('/')
-        repository = self.graphql(QUERY + PULL_SUMMARY, owner=owner, repo=name,
+        repository = self.graphql(QUERY + CHECK_CONTEXTS + PULL_SUMMARY, owner=owner, repo=name,
                                   ref='refs/heads/' + branch, branch=branch, ended=ended)
         try:
             repository = repository['repository']
@@ -174,14 +181,19 @@ class GitHub:
             sha = commit['oid']
             if not isinstance(sha, str) or not SHA.fullmatch(sha):
                 raise ValueError()
-            pr = next((node for node in ref['associatedPullRequests']['nodes']
-                       if node['headRefOid'] == sha and node['isCrossRepository'] is False), None)
-            url = f'https://github.com/{repo}'
-            pr_number = number(pr['number']) if pr else None
-            link = {'number': pr_number, 'url': f'{url}/pull/{pr_number}'} if pr_number else None
-            checks_url = link['url'] if link else f'{url}/actions?' + urlencode({'query': 'branch:' + branch})
+            pr = first(ref['associatedPullRequests']['nodes'])
+            link = None
+            rollup = commit['statusCheckRollup']
+            if pr is not None and pr['headRefOid'] == sha:
+                pr_repo = pr['repository']['nameWithOwner']
+                if not repo_name(pr_repo):
+                    raise ValueError()
+                pr_number = number(pr['number'])
+                link = {'number': pr_number, 'url': f'https://github.com/{pr_repo.lower()}/pull/{pr_number}'}
+                rollup = pr['statusCheckRollup'] or rollup
+            checks_url = link['url'] if link else f'https://github.com/{repo}/actions?' + urlencode({'query': 'branch:' + branch})
             try:
-                checks = check_rollup(commit['statusCheckRollup'], checks_url)
+                checks = check_rollup(rollup, checks_url)
             except GitHubError as exc:
                 checks = exc.args[0]
             except (KeyError, TypeError, ValueError):

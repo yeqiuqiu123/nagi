@@ -8,7 +8,8 @@ import time
 
 from agents_projection import stamp
 from agents_service import AgentsService, outcome
-from ci_workspace import PREFERENCE, branch_name, env_path, repo_name, resolve_workspace
+from ci_workspace import (PREFERENCE, WorkspaceUnavailable, branch_name, env_path,
+                          repo_name, resolve_workspace)
 from github_ci import GitHub, GitHubError, SETUP_REASONS
 
 CI_SOURCE_ID = 'github-ci'
@@ -44,9 +45,15 @@ def discover(candidates):
     omitted = False
     seen = 0
     for identity, mode, location in candidates:
-        if isinstance(location, list) and len(location) == 2:
+        if isinstance(location, list):
+            if not location:
+                seen += 1
+                continue
+            if len(location) != 2 or not repo_name(location[0]) or not branch_name(location[1]):
+                omitted = True
+                continue
             repo, branch = location
-            pair = (repo.lower(), branch) if repo_name(repo) and branch_name(branch) else None
+            pair = repo.lower(), branch
         elif isinstance(location, tuple) and len(location) == 3:
             cwd, branch, root = location
             if any(v is not None and not isinstance(v, str) for v in location):
@@ -60,8 +67,14 @@ def discover(candidates):
                 if len(resolved) >= MAX_WORKSPACES:
                     omitted = True
                     continue
-                resolved[key] = resolve_workspace(cwd, branch)
+                try:
+                    resolved[key] = resolve_workspace(cwd, branch)
+                except WorkspaceUnavailable:
+                    resolved[key] = False
             pair = resolved[key]
+            if pair is False:
+                omitted = True
+                continue
         else:
             omitted = True
             continue

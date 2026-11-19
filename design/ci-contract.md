@@ -44,8 +44,8 @@ Row = {
 
 Join agent IDs to the existing active and Ended agent rows. Check the row's
 outcome before rendering its fields. CI and deployment checks can fail
-independently. The check rollup is for the GitHub branch tip. A same-repository
-open PR for that tip supplies the PR link when available. Failed takes precedence
+independently. The check rollup is for the GitHub branch tip. An open PR for that tip supplies
+the PR link and its rollup when available. Failed takes precedence
 over running, then cancelled and passed. Neutral/skipped checks count toward
 total and do not count toward passed. No checks is state `none`. The deployment
 is the latest GitHub deployment for the exact branch ref, which can be for an

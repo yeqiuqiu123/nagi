@@ -1,18 +1,21 @@
 """GitHub CI end to end through a disposable reader and fake executables."""
 import json
+import os
 from http.server import ThreadingHTTPServer
 from pathlib import Path
 import subprocess
 import sys
 import threading
+import time
 from urllib.error import HTTPError
 from urllib.request import Request
 
 import pytest
 
 import machine
-from agents_service import AgentsService
+from agents_service import AgentsService, outcome
 from ci_service import CI_SOURCE_ID
+from ci_workspace import PREFERENCE
 from install_reader import install
 from owner_auth import OwnerAuth, authenticated_open
 import server
@@ -89,7 +92,7 @@ if args[1] == 'graphql':
         checks = [{'__typename':'CheckRun','status':'COMPLETED' if completed else 'IN_PROGRESS',
                    'conclusion':conclusion,'startedAt':stamp,'completedAt':stamp if completed else None}]
         ref = {'target':{'oid':sha,'statusCheckRollup':{'contexts':connection(checks)}},
-            'associatedPullRequests':connection([{'number':17,'headRefOid':sha,'isCrossRepository':False}])}
+            'associatedPullRequests':connection([{'number':17,'headRefOid':sha,'repository':{'nameWithOwner':repo},'statusCheckRollup':None}])}
         data = {'ref':None if options.get('deleted_branch') else ref}
         if 'ended=true' in args:
             data['historical'] = connection([dict(pull(branch), state='MERGED', title=options['unsafe_title'])])
@@ -222,6 +225,12 @@ def test_watched_ci_and_notification_survive_reservation_and_restart(fake_cli, l
     event = recorded[0]
     assert event['sourceId'] == CI_SOURCE_ID
     assert event['event']['kind'] == 'ci_failed'
+    from linux.agent_notifications import banner, valid_event
+    from linux.tray import read_ci_failed
+    assert valid_event(event['event'])
+    assert banner(event['event']) == ('demo/kestrel','CI checks failed.')
+    assert read_ci_failed(f'http://127.0.0.1:{local_reader[2]}',
+                          lambda request, *, timeout: authenticated_open(request, source.directory, timeout=timeout))
     request = {'sourceId':CI_SOURCE_ID,'id':event['event']['id']}
     lease = api(endpoint+'/reserve', request)['lease']
     assert not api(endpoint)['events']
@@ -309,7 +318,11 @@ def test_status_launcher_uses_real_owner_proof_and_machine_snapshot(fake_cli, lo
     def execute(*args):
         return subprocess.run([str(launcher),'status',*args],capture_output=True,text=True,timeout=2)
 
-    assert execute().stdout.strip() == '2 running · 1 asks you · CI ✗ kestrel'
+    future = NOW.replace(hour=NOW.hour+1).isoformat()
+    claude = {'id':'account','label':'Claude 1','windows':[{
+        'remainingPercent':12,'checkedAt':STAMP,'resetsAt':future}]}
+    source.legacy.providers['claude'] = outcome('ok',STAMP,STAMP,data={'accounts':[claude]})
+    assert execute().stdout.strip() == '2 running · 1 asks you · CI ✗ kestrel · Claude 12%'
     waybar = json.loads(execute('--waybar').stdout)
     assert waybar['class'] == ['asks-you','ci-failed']
     data = json.loads(execute('--json').stdout)
@@ -322,6 +335,30 @@ def test_status_launcher_uses_real_owner_proof_and_machine_snapshot(fake_cli, lo
         closed_port = str(unused.getsockname()[1])
         assert execute('--port',closed_port).stdout.strip() == 'nagi ?'
         assert execute('--port',closed_port,'--quiet').returncode == 2
+        unused.listen(2)  # Accept a connection in the kernel and never answer the HMAC challenge.
+        started = time.monotonic()
+        assert execute('--port',closed_port).stdout.strip() == 'nagi ?'
+        assert time.monotonic()-started < 1.2
+
+
+def test_claude_hook_passes_only_normalized_workspace(fake_cli, tmp_path):
+    from nagi_store import LocalStore
+    data = Path.home()/'data'
+    store = LocalStore(data)
+    store.mutate(PREFERENCE, {}, lambda value:value.update(enabled=True))
+    source = 'c'*32
+    cwd = tmp_path/'workspace'
+    cwd.mkdir()
+    hook = Path(__file__).resolve().parents[1]/'claude_hook.py'
+    input_event = {'hook_event_name':'UserPromptSubmit','session_id':'s','cwd':str(cwd)}
+    env = {**os.environ,'CLAUDE_CODE_ENTRYPOINT':'cli'}
+    env.pop('CLAUDE_AGENT_SDK_VERSION',None)
+    result = subprocess.run([sys.executable,'-I','-B',str(hook),str(data),source],
+                            input=json.dumps(input_event),text=True,capture_output=True,timeout=2,env=env)
+    assert (result.returncode,result.stdout,result.stderr) == (0,'','')
+    raw = (data/f'claude-{source}.jsonl').read_text()
+    assert str(cwd) not in raw
+    assert json.loads(raw)['github'] == ['demo/kestrel','feature/session']
 
 
 def test_machine_projection_and_partial_sampler(monkeypatch):

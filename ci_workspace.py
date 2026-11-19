@@ -69,13 +69,17 @@ def workspace_path(value):
             and value.startswith('/') and value.isprintable())
 
 
-def resolve_workspace(cwd, branch=None, *, timeout=1.0):
+class WorkspaceUnavailable(ValueError):
+    pass
+
+
+def resolve_workspace(cwd, branch=None, *, timeout=.5):
     if not workspace_path(cwd):
-        return None
+        raise WorkspaceUnavailable()
     path = env_path()
     git = shutil.which('git', path=path)
     if not git:
-        return None
+        raise WorkspaceUnavailable()
     env = {'PATH': path, 'GIT_CONFIG_NOSYSTEM': '1', 'GIT_CONFIG_GLOBAL': os.devnull,
            'GIT_TERMINAL_PROMPT': '0', 'LC_ALL': 'C'}
     deadline = time.monotonic() + timeout
@@ -92,14 +96,18 @@ def resolve_workspace(cwd, branch=None, *, timeout=1.0):
         if branch is None:
             branch = read('symbolic-ref', '--quiet', '--short', 'HEAD')
         if not branch_name(branch):
-            return None
-        remote = read('config', '--local', '--get', f'branch.{branch}.remote', r'^[A-Za-z0-9][A-Za-z0-9_.-]{0,100}$') or 'origin'
-        if not REMOTE_NAME.fullmatch(remote):
-            return None
+            raise WorkspaceUnavailable()
+        tracked = read('config', '--local', '--get', f'branch.{branch}.remote',
+                       r'^[A-Za-z0-9][A-Za-z0-9_.-]{0,100}$')
+        remote = tracked or 'origin'
         url = read('config', '--local', '--get', f'remote.{remote}.url', REMOTE_FILTER)
+        if not url and tracked is None:
+            names = (read('remote') or '').splitlines()
+            if len(names) == 1 and names[0] != remote and REMOTE_NAME.fullmatch(names[0]):
+                url = read('config', '--local', '--get', f'remote.{names[0]}.url', REMOTE_FILTER)
         if not url or not re.fullmatch(REMOTE_FILTER, url):
             return None
         repo = re.sub(GITHUB_PREFIX, '', url).rstrip('/').removesuffix('.git')
         return (repo.lower(), branch) if repo_name(repo) else None
     except (OSError, ValueError, subprocess.SubprocessError):
-        return None
+        raise WorkspaceUnavailable() from None
