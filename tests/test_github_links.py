@@ -1,105 +1,71 @@
 """GitHub links from the panel's CI marks: the one shape that may open in the browser,
 and the shells' gates around it. Pure checks; no GTK, no browser, no network."""
 from pathlib import Path
+import json
+import re
 import sys
 from unittest import TestCase
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 sys.path.insert(0, str(ROOT / 'linux'))
-from nagi_links import github_link, open_link, open_thread, thread_links
+from nagi_links import GITHUB_RESERVED, github_link, open_link, open_thread, thread_links
 import notifications
 
-ACCEPTED = (
-    'https://github.com/o/r',
-    'https://github.com/o/r/pull/12',
-    'https://github.com/o/r/actions',
-    'https://github.com/o/r/actions/runs/123',
-    'https://github.com/o/r/deployments',
-    'https://github.com/tidepool-labs/tidepool.web/pull/128',
-)
-REFUSED = (
-    # Routes the panel never builds, and GitHub's own pages (sign-in, SSO, settings).
-    'https://github.com/o/r/pull/12/checks',
-    'https://github.com/o/r/pull/12/files',
-    'https://github.com/o/r/pull/0',
-    'https://github.com/o/r/pull/abc',
-    'https://github.com/o/r/pull/12345678901234567890',
-    'https://github.com/o/r/commit/0123456789abcdef0123456789abcdef01234567/checks',
-    'https://github.com/o/r/a/b/c/d/e/f',
-    'https://github.com/o/r/actions/runs/12/job/3',
-    'https://github.com/o/r/actions/workflows',
-    'https://github.com/o/r/deployments/production',
-    'https://github.com/o/r/settings',
-    'https://github.com/o/r/issues/3',
-    'https://github.com/o/r/tree/main',
-    'https://github.com/orgs/acme/sso',
-    'https://github.com/orgs/acme',
-    'https://github.com/ORGS/acme',
-    'https://github.com/login/oauth',
-    'https://github.com/settings/actions',
-    'https://github.com/sessions/two-factor',
-    'https://github.com/enterprises/acme/sso',
-    'http://github.com/o/r',
-    'https://github.com.evil.example/o/r',
-    'https://evil.example/github.com/o/r',
-    'https://user@github.com/o/r',
-    'https://user:secret@github.com/o/r',
-    'https://github.com:443/o/r',
-    'https://github.com/o/r/pull/12?tab=checks',
-    'https://github.com/o/r?',
-    'https://github.com/o/r#top',
-    'https://github.com/o/r/pull/12#',
-    'https://github.com/o/../r',
-    'https://github.com/o/r/..',
-    'https://github.com/o/r/./pull',
-    'https://github.com/o/..',
-    'https://github.com/o/r%2Fpull/1',
-    'https://github.com/o/r/pull%2F1',
-    'https://github.com/o/r/a/b/c/d/e/f/g',
-    'https://github.com/o/r\n',
-    'https://github.com/o/r/pull/1\r',
-    'https://github.com/o/r/ pull',
-    'https://github.com/o//r',
-    'https://github.com/o/r/',
-    'https://github.com//o/r',
-    'https://gist.github.com/o/r',
-    'https://GITHUB.com/o/r',
-    'HTTPS://github.com/o/r',
-    'https://github.com/o',
-    'https://github.com/',
-    'https://github.com',
-    'https://github.com/o/r\\x',
-    'https://github.com/o_x/r',
-    'https://github.com/' + 'o' * 40 + '/r',
-    'https://github.com/o/' + 'r' * 101,
-    'https://github.com/o/r/' + 'x' * 201,
-    'https://github.com/o/r/' + 'a/' * 1100 + 'a',
-    'https://github.com/o/r/é',
-    'javascript:alert(1)',
-    'file:///tmp/x',
-    '',
-    None,
-    42,
-)
+CASES = json.loads((ROOT / 'tests' / 'github-link-cases.json').read_text())
+ACCEPTED = tuple(CASES['accepted'])
+REFUSED = tuple(CASES['refused']) + (None, 42, b'https://github.com/o/r/pull/1')
+# Refused as a GitHub link and not a T3 thread link either: nothing the shells may open.
+NOT_LINKS = tuple(value for value in REFUSED if value != 't3code://threads/e/a')
 
 
 class GitHubLink(TestCase):
     def test_accepted_shapes_are_returned_unchanged(self):
+        self.assertGreaterEqual(len(ACCEPTED), 8)
         for value in ACCEPTED:
             with self.subTest(value=value):
                 self.assertEqual(github_link(value), value)
 
     def test_everything_else_is_refused(self):
+        self.assertGreaterEqual(len(REFUSED), 70)
         for value in REFUSED:
             with self.subTest(value=value):
                 self.assertIsNone(github_link(value))
 
-    def test_the_web_model_uses_the_same_table(self):
-        # tests/glance-ci.test.cjs checks safeGithub; keep both tables in step.
-        script = (ROOT / 'tests' / 'glance-ci.test.cjs').read_text()
-        for value in ('https://github.com/orgs/acme/sso', 'https://github.com.evil.example/o/r', 'https://github.com/o/r%2Fpull'):
-            self.assertIn(value, script)
+    def test_githubs_own_first_segments_are_never_an_owner(self):
+        # /new/import and /features/actions have the shape of a repository; so does every
+        # other page under a reserved name, whatever route follows and however it is cased.
+        self.assertGreaterEqual(len(CASES['reserved']), 300)
+        for name in CASES['reserved']:
+            for owner in (name, name.upper(), name.capitalize()):
+                for rest in ('x', 'x/pull/1', 'actions', 'actions/actions', 'x/deployments'):
+                    with self.subTest(owner=owner, rest=rest):
+                        self.assertIsNone(github_link('https://github.com/' + owner + '/' + rest))
+        for name in ('new', 'features', 'orgs', 'login', 'settings', 'sessions', 'enterprises', 'marketplace', 'topics', 'copilot', 'sso'):
+            self.assertIn(name, CASES['reserved'])
+
+    def test_a_repository_name_is_a_name(self):
+        for repo in ('.', '..', 'r.', 'r..', '...', '.github.'):
+            with self.subTest(repo=repo):
+                self.assertIsNone(github_link('https://github.com/o/' + repo + '/pull/1'))
+        self.assertEqual(github_link('https://github.com/o/.github/pull/1'), 'https://github.com/o/.github/pull/1')
+
+    def test_the_three_validators_hold_the_same_reserved_names(self):
+        # The list is written out in each language. All three must equal the shared table,
+        # so a name added to one can't be forgotten in another, even where Swift isn't run.
+        want = set(CASES['reserved'])
+        self.assertEqual(set(GITHUB_RESERVED), want)
+        web = (ROOT / 'web' / 'glance-ci.js').read_text()
+        js = re.search(r"const RESERVED = new Set\(\(\s*'([a-z0-9 -]+)'\s*\)\.split\(' '\)\);", web)
+        self.assertIsNotNone(js)
+        self.assertEqual(set(js.group(1).split(' ')), want)
+        swift = (ROOT / 'mac' / 'Sources' / 'NagiCore' / 'SourceLinks.swift').read_text()
+        mac = re.search(r'githubReserved: Set<String> = Set\(\(\s*"([a-z0-9 -]+)"\s*\)\.split\(separator: " "\)', swift)
+        self.assertIsNotNone(mac)
+        self.assertEqual(set(mac.group(1).split(' ')), want)
+        # And all three test suites read the one table.
+        for path in ('tests/glance-ci.test.cjs', 'mac/Tests/NagiCoreTests/GitHubLinkTests.swift'):
+            self.assertIn('github-link-cases.json', (ROOT / path).read_text())
 
 
 class OpenLink(TestCase):
@@ -109,7 +75,7 @@ class OpenLink(TestCase):
             self.assertEqual(open_link('t3code://threads/e/a%3Ab', first.append, has),
                              open_thread('t3code://threads/e/a%3Ab', second.append, has))
             self.assertEqual(first, second)
-        self.assertEqual(thread_links('https://github.com/o/r'), None)
+        self.assertEqual(thread_links('https://github.com/o/r/pull/1'), None)
         self.assertIsNone(github_link('t3code://threads/e/a'))
 
     def test_a_github_link_opens_once_in_the_browser(self):
@@ -119,24 +85,24 @@ class OpenLink(TestCase):
 
     def test_refused_links_never_reach_the_opener(self):
         opened = []
-        for value in REFUSED:
+        for value in NOT_LINKS:
             with self.subTest(value=value):
                 self.assertFalse(open_link(value, opened.append, lambda _: True))
         self.assertEqual(opened, [])
 
     def test_an_opener_that_fails_or_raises_is_not_opened(self):
-        self.assertFalse(open_link('https://github.com/o/r', lambda _: False))
+        self.assertFalse(open_link('https://github.com/o/r/pull/1', lambda _: False))
 
         def boom(_):
             raise OSError('no browser')
-        self.assertFalse(open_link('https://github.com/o/r', boom))
+        self.assertFalse(open_link('https://github.com/o/r/pull/1', boom))
 
 
 class ShellGates(TestCase):
     def test_tray_panel_lets_a_github_link_leave_and_nothing_wider(self):
         self.assertTrue(notifications.glance_destination('https://github.com/o/r/pull/12'))
         self.assertTrue(notifications.glance_destination('t3code://threads/e/a'))
-        for value in REFUSED:
+        for value in NOT_LINKS:
             with self.subTest(value=value):
                 self.assertFalse(notifications.glance_destination(value))
 
@@ -147,6 +113,8 @@ class ShellGates(TestCase):
         self.assertTrue(widget.open_panel_external('https://github.com/o/r/pull/12', True, page, opened.append))
         self.assertEqual(opened, ['https://github.com/o/r/pull/12'])
         self.assertFalse(widget.open_panel_external('https://github.com/o/r/pull/12', False, page, opened.append))
-        self.assertFalse(widget.open_panel_external('https://github.com/o/r/pull/12', True, 'https://github.com/o/r', opened.append))
-        self.assertFalse(widget.open_panel_external('https://github.com.evil.example/o/r', True, page, opened.append))
+        self.assertFalse(widget.open_panel_external('https://github.com/o/r/pull/12', True, 'https://github.com/o/r/pull/1', opened.append))
+        self.assertFalse(widget.open_panel_external('https://github.com.evil.example/o/r/pull/1', True, page, opened.append))
+        self.assertFalse(widget.open_panel_external('https://github.com/new/import', True, page, opened.append))
+        self.assertFalse(widget.open_panel_external('https://github.com/features/actions', True, page, opened.append))
         self.assertEqual(len(opened), 1)

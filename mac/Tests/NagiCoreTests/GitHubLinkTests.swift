@@ -2,80 +2,27 @@ import Foundation
 import Testing
 @testable import NagiCore
 
-// The same accepted and refused table as tests/test_github_links.py (nagi_links.github_link)
-// and safeGithub in tests/glance-ci.test.cjs.
+// The same table as tests/test_github_links.py (nagi_links.github_link) and safeGithub in
+// tests/glance-ci.test.cjs: tests/github-link-cases.json.
 @Suite struct GitHubLinkPolicy {
-    static let accepted = [
-        "https://github.com/o/r",
-        "https://github.com/o/r/pull/12",
-        "https://github.com/o/r/actions",
-        "https://github.com/o/r/actions/runs/123",
-        "https://github.com/o/r/deployments",
-        "https://github.com/tidepool-labs/tidepool.web/pull/128",
-    ]
-    static let refused = [
-        // Routes the panel never builds, and GitHub's own pages (sign-in, SSO, settings).
-        "https://github.com/o/r/pull/12/checks",
-        "https://github.com/o/r/pull/12/files",
-        "https://github.com/o/r/pull/0",
-        "https://github.com/o/r/pull/abc",
-        "https://github.com/o/r/pull/12345678901234567890",
-        "https://github.com/o/r/commit/0123456789abcdef0123456789abcdef01234567/checks",
-        "https://github.com/o/r/a/b/c/d/e/f",
-        "https://github.com/o/r/actions/runs/12/job/3",
-        "https://github.com/o/r/actions/workflows",
-        "https://github.com/o/r/deployments/production",
-        "https://github.com/o/r/settings",
-        "https://github.com/o/r/issues/3",
-        "https://github.com/o/r/tree/main",
-        "https://github.com/orgs/acme/sso",
-        "https://github.com/orgs/acme",
-        "https://github.com/ORGS/acme",
-        "https://github.com/login/oauth",
-        "https://github.com/settings/actions",
-        "https://github.com/sessions/two-factor",
-        "https://github.com/enterprises/acme/sso",
-        "http://github.com/o/r",
-        "https://github.com.evil.example/o/r",
-        "https://evil.example/github.com/o/r",
-        "https://user@github.com/o/r",
-        "https://user:secret@github.com/o/r",
-        "https://github.com:443/o/r",
-        "https://github.com/o/r/pull/12?tab=checks",
-        "https://github.com/o/r?",
-        "https://github.com/o/r#top",
-        "https://github.com/o/r/pull/12#",
-        "https://github.com/o/../r",
-        "https://github.com/o/r/..",
-        "https://github.com/o/r/./pull",
-        "https://github.com/o/..",
-        "https://github.com/o/r%2Fpull/1",
-        "https://github.com/o/r/pull%2F1",
-        "https://github.com/o/r/a/b/c/d/e/f/g",
-        "https://github.com/o/r\n",
-        "https://github.com/o/r/pull/1\r",
-        "https://github.com/o/r/ pull",
-        "https://github.com/o//r",
-        "https://github.com/o/r/",
-        "https://github.com//o/r",
-        "https://gist.github.com/o/r",
-        "https://GITHUB.com/o/r",
-        "HTTPS://github.com/o/r",
-        "https://github.com/o",
-        "https://github.com/",
-        "https://github.com",
-        "https://github.com/o/r\\x",
-        "https://github.com/o_x/r",
-        "https://github.com/" + String(repeating: "o", count: 40) + "/r",
-        "https://github.com/o/" + String(repeating: "r", count: 101),
-        "https://github.com/o/r/" + String(repeating: "x", count: 201),
-        "https://github.com/o/r/" + String(repeating: "a/", count: 1100) + "a",
-        "https://github.com/o/r/\u{e9}",
-        "javascript:alert(1)",
-        "file:///tmp/x",
-        "t3code://threads/e/a",
-        "",
-    ]
+    /// tests/github-link-cases.json: the one table all three validators are tested against.
+    static let cases: [String: [String]] = {
+        let table = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
+            .deletingLastPathComponent().deletingLastPathComponent().appendingPathComponent("tests/github-link-cases.json")
+        guard let data = try? Data(contentsOf: table),
+              let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return [:] }
+        // The lists only; the table's two notes are plain strings and are left out.
+        return object.compactMapValues { $0 as? [String] }
+    }()
+    static let accepted: [String] = cases["accepted"] ?? []
+    static let refused: [String] = cases["refused"] ?? []
+    static let reserved: [String] = cases["reserved"] ?? []
+
+    @Test func theSharedTableIsThere() {
+        #expect(Self.accepted.count >= 8)
+        #expect(Self.refused.count >= 70)
+        #expect(Self.reserved.count >= 300)
+    }
 
     @Test func acceptedShapesAreReturnedUnchanged() {
         for value in Self.accepted { #expect(SourceLinks.githubLink(value) == value, "\(value)") }
@@ -83,6 +30,27 @@ import Testing
 
     @Test func everythingElseIsRefused() {
         for value in Self.refused { #expect(SourceLinks.githubLink(value) == nil, "\(value)") }
+    }
+
+    @Test func gitHubsOwnFirstSegmentsAreNeverAnOwner() {
+        // /new/import and /features/actions have the shape of a repository; so does every
+        // other page under a reserved name, whatever route follows and however it is cased.
+        for name in Self.reserved {
+            for owner in [name, name.uppercased(), name.capitalized] {
+                for rest in ["x", "x/pull/1", "actions", "actions/actions", "x/deployments"] {
+                    let link = "https://github.com/" + owner + "/" + rest
+                    #expect(SourceLinks.githubLink(link) == nil, "\(link)")
+                }
+            }
+        }
+    }
+
+    @Test func aRepositoryNameIsAName() {
+        for repo in [".", "..", "r.", "r..", "...", ".github."] {
+            let link = "https://github.com/o/" + repo + "/pull/1"
+            #expect(SourceLinks.githubLink(link) == nil, "\(link)")
+        }
+        #expect(SourceLinks.githubLink("https://github.com/o/.github/pull/1") == "https://github.com/o/.github/pull/1")
     }
 
     @Test func openLinkKeepsThreadsFirstThenGitHubOnce() {
@@ -100,6 +68,6 @@ import Testing
                                           open: { opened.append($0.absoluteString); return true }), "\(value)")
         }
         #expect(opened.isEmpty)
-        #expect(!SourceLinks.openLink("https://github.com/o/r", hasDesktopHandler: { _ in true }, open: { _ in false }))
+        #expect(!SourceLinks.openLink("https://github.com/o/r/pull/1", hasDesktopHandler: { _ in true }, open: { _ in false }))
     }
 }
