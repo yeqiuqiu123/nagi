@@ -440,7 +440,7 @@ final class GlancePanel: NSPanel {
             // frame, and a real mouse or key event in the panel must have come just before it.
             if let link = SourceLinks.githubLink(url.absoluteString), let target = URL(string: link) {
                 decisionHandler(.cancel)
-                let source = navigationAction.sourceFrame
+                let source: WKFrameInfo? = navigationAction.sourceFrame
                 let fromPanel = trusted(webView.url, in: page) && source?.isMainFrame == true
                     && trusted(source?.request.url, in: page)
                 let owned = activation.consume(at: ProcessInfo.processInfo.systemUptime)
