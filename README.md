@@ -24,6 +24,11 @@ Nagi answers two questions:
 - **Am I about to hit my limits?** Every account, with what's left in each window and the date it resets, lowest first. A notification when a window runs low.
 - **What are my agents doing right now?** Each agent by name, who started it, and how long it's been since it said anything. Closed, it's just a number in your menu bar or tray.
 
+Two more, if you want them:
+
+- **Your branches on GitHub.** Each agent's branch shows its checks and its latest deployment as a small mark, and pull requests waiting on you are counted beside the agents that ask you. It's off until you switch it on in Settings → Sources, and it only reads.
+- **Three themes.** Violet, Graphite and Tide, each light and dark, with your own colour for the accent and for each provider. A colour you pick is adjusted until it reads well on both, and one that would look like a warning isn't taken.
+
 It runs on **Linux** (a GTK tray) and **macOS** (a menu-bar app).
 
 ## Sources

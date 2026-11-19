@@ -408,9 +408,12 @@
     const groups = projects.map((p) => {
       const counts = { completed: 0, failed: 0, interrupted: 0 };
       let from = null; let to = null; const problems = new Map();
+      // Every ended thread's id and title, so other feeds (CI results) can join to this group.
+      const agents = [];
       const scan = (a, depth) => {
         if (!a.contextOnly && !ACTIVE.has(a.state)) {
           if (depth === 0) top++; else sub++;
+          agents.push({ id: a.id, title: a.title });
           if (a.state in counts) counts[a.state]++;
           const end = ms(a.endedAt);
           if (end != null) { if (from == null || end < from) from = end; if (to == null || end > to) to = end; }
@@ -435,7 +438,7 @@
       return {
         id: p.id, title: projectName(p.title), last: to == null ? -Infinity : to,
         icon: { ...(p.icon && typeof p.icon === 'object' && p.icon.kind ? p.icon : { kind: 'auto' }), fallback: projectIdentity(p.title) },
-        summary: parts.join(', ') + (range ? ' · ' + range : ''), counts, range,
+        summary: parts.join(', ') + (range ? ' · ' + range : ''), counts, range, agents,
         problems: [...problems.values()].sort((x, y) => (y.to || 0) - (x.to || 0)).map((g) => ({
           title: (g.n > 1 ? g.n + ' × ' : '') + g.title,
           meta: g.model + ' · ' + STATE_WORD[g.state] + ' ' + rangeText(g.from, g.to, ctx.now),

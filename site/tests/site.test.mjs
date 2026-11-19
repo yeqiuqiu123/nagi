@@ -18,6 +18,13 @@ test('the panel page loads the demo shim and no auth or live API', () => {
   assert.match(html, /<script src="demo.js"><\/script>/);
   assert.doesNotMatch(html, /nagi-auth/);
   assert.doesNotMatch(html, /(href|src)="\//, 'no root-absolute URLs (the site may live under a sub-path)');
+  // Scripts the panel loads later resolve under a sub-path too; only the API stays absolute.
+  const js = fs.readFileSync(path.join(site, 'panel', 'nagi-glance.js'), 'utf8');
+  for (const m of js.matchAll(/script\.src = '([^']+)'/g)) {
+    if (m[1] === '/nagi-setup.js') continue; // never reached: the demo hides Settings → Sources
+    assert.doesNotMatch(m[1], /^\//, m[1] + ' must be relative');
+    assert.ok(fs.existsSync(path.join(site, 'panel', m[1])), m[1] + ' is copied');
+  }
 });
 
 test('the demo fixture stays fictional', () => {

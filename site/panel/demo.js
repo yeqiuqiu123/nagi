@@ -169,6 +169,9 @@
       if (init && init.method === 'POST') { try { settings = { ...settings, ...JSON.parse(init.body) }; } catch {} }
       return json({ version: 2, settings: clone(settings), defaults: clone(DEFAULTS), warnings: [] });
     }
+    // Everything else answers 404, as a reader without that feature does: the GitHub routes
+    // (/ci, /ci/pulls, /ci/ended, /ci/settings) and /machine, so the demo draws no checks and no
+    // load ring, and the hero stays what the stills show.
     return json({ error: 'not_in_demo' }, 404);
   };
 
@@ -185,6 +188,13 @@
   document.addEventListener('DOMContentLoaded', () => {
     const row = document.querySelector('.sources-field'); if (row) row.hidden = true;
     const lede = document.getElementById('sheet-lede'); if (lede) lede.textContent = 'In this demo, settings last until you leave the page.';
+    // The Appearance sheet is built when it opens, so its lede is replaced as it appears.
+    const APPEARANCE_LEDE = 'In this demo, your choice lasts until you leave the page.';
+    const panel = document.getElementById('panel');
+    if (panel) new MutationObserver(() => {
+      const own = document.getElementById('appearance-lede');
+      if (own && own.textContent !== APPEARANCE_LEDE) own.textContent = APPEARANCE_LEDE;
+    }).observe(panel, { childList: true, subtree: true });
   });
 
   // ---- The story ---------------------------------------------------------------------
