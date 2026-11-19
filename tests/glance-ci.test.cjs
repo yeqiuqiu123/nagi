@@ -44,7 +44,7 @@ function envelope(many) {
   return { version: 1, platform: 'linux', checkedAt: at(0), settings: { stuckMinutes: 15, endedExpiryHours: 24 }, warnings: [],
     sources: many ? [src('here', agents), src('other', quiet)] : [src('here', agents)] };
 }
-const ctxOf = (many) => { const env = envelope(many); return { now: NOW, vm: M.buildSources(env, { now: NOW }).vm, envelope: env }; };
+const ctxOf = (many) => { const env = envelope(many); return { now: NOW, vm: M.buildSources(env, { now: NOW }).vm }; };
 const build = (feeds, ctx) => C.build(feeds, ctx || ctxOf(false));
 
 // Every string the panel could print or say.
@@ -213,7 +213,7 @@ test('GitHub unreachable: a dashed ring, the attempt time in the rail, no row ma
   assert.deepEqual(r.byAgent, {});
   assert.equal(r.rail.state, 'down');
   assert.equal(r.rail.words, "couldn't check · tried 06:05");
-  assert.equal(r.rail.detail, "GitHub couldn't be reached. Last read 05:25.");
+  assert.equal(r.rail.detail, "Couldn't reach github.com. Last read 05:25.");
   assert.deepEqual(r.pulls, { count: null, partial: false, dated: false, asOf: '', flag: null, rows: [], failed: { words: "couldn't check · tried 06:05" } });
   assert.equal(r.results.count, null);
   assert.deepEqual(r.results.failed, { words: "couldn't check · tried 06:05" });
@@ -232,7 +232,7 @@ test('a whole CI reading kept from earlier: grey marks, a dated ring, last seen 
   assert.equal(r.header.ring.dated, true);
   assert.equal(r.header.ring.label, 'Checks on 2 branches: 1 failed, 1 passed. As of 05:25.');
   assert.deepEqual({ state: r.rail.state, words: r.rail.words }, { state: 'dated', words: 'last seen 05:25' });
-  assert.equal(r.rail.detail, "GitHub couldn't be reached. Tried 06:05.");
+  assert.equal(r.rail.detail, "Couldn't reach github.com. Tried 06:05.");
   honest(r);
 });
 
@@ -321,26 +321,26 @@ test('ended results: one mark per PR, needs you first, then failed, running, pas
   assert.equal(plain.byAgent.e3.word, null);
   assert.equal(plain.byAgent.e2.mark.href, null);
   honest(plain);
-  // Without the raw envelope every row is kept (nothing to join against).
+  // Without a view model every row is kept (nothing to join against).
   assert.equal(C.build({ ended: ok({ rows, omitted: false }) }, { now: NOW }).results.count, 8);
 });
 
-test('the ended view model alone cannot join: it keeps failed and stopped groups without agent ids', () => {
+test('the view model exposes what CI joins to: raw ids on running rows, every ended thread per Ended group', () => {
   const { vm } = ctxOf(false);
-  const ids = JSON.stringify(vm.endedAll);
-  assert.ok(!ids.includes('"e1"'));
   assert.ok(vm.list.some((p) => p.rows.some((r) => r.id === 'r1')), 'running rows carry the raw agent id');
+  assert.deepEqual(vm.endedAll.groups[0].agents.map((a) => a.id), ['e1', 'e2', 'e3', 'e4', 'e5', 'e6']);
+  assert.equal(vm.endedAll.groups[0].key, 'tidepool');
 });
 
 test('machine load: two rings without a GPU, three with one; CPU may exceed 100; a null reading is dashed', () => {
   const calm = build({ machine: ok({ cpuLoadPercent: 31, memoryPressurePercent: 58, gpu: null }) }).load;
   assert.deepEqual(calm.rings, [{ key: 'cpu', pct: 31, f: 0.31, high: false }, { key: 'memory', pct: 58, f: 0.58, high: false }]);
-  assert.deepEqual(calm.rows, [{ name: 'CPU', value: '31%' }, { name: 'Memory', value: '58%' }]);
+  assert.deepEqual(calm.rows, [{ name: 'CPU', pct: '31%', more: '', value: '31%' }, { name: 'Memory', pct: '58%', more: '', value: '58%' }]);
   assert.equal(calm.label, 'Machine load: CPU 31%, memory 58%.');
   assert.equal(calm.failed, null);
   const gpu = build({ machine: ok({ cpuLoadPercent: 44, memoryPressurePercent: 63, gpu: { utilizationPercent: 12, memoryUsedBytes: Math.round(3.1 * GIB), memoryTotalBytes: 24 * GIB } }) }).load;
   assert.deepEqual(gpu.rings.map((x) => x.key), ['cpu', 'memory', 'gpu']);
-  assert.deepEqual(gpu.rows[2], { name: 'GPU', value: '12% · 3.1 of 24 GB' });
+  assert.deepEqual(gpu.rows[2], { name: 'GPU', pct: '12%', more: '3.1 of 24 GB', value: '12% · 3.1 of 24 GB' });
   const hot = build({ machine: ok({ cpuLoadPercent: 142.4, memoryPressurePercent: 93, gpu: { utilizationPercent: 97, memoryUsedBytes: 0, memoryTotalBytes: 24 * GIB } }) }).load;
   assert.deepEqual(hot.rings[0], { key: 'cpu', pct: 142.4, f: 1, high: true });
   assert.equal(hot.rings[1].high, true);
@@ -350,11 +350,11 @@ test('machine load: two rings without a GPU, three with one; CPU may exceed 100;
   assert.equal(build({ machine: ok({ cpuLoadPercent: 89.9, memoryPressurePercent: 90, gpu: null }) }).load.rings.map((x) => x.high).join(), 'false,true');
   const partial = build({ machine: ok({ cpuLoadPercent: 38, memoryPressurePercent: null, gpu: null }) }).load;
   assert.deepEqual(partial.rings[1], { key: 'memory', pct: null, f: null, high: false });
-  assert.deepEqual(partial.rows[1], { name: 'Memory', value: "couldn't read" });
+  assert.deepEqual(partial.rows[1], { name: 'Memory', pct: null, more: '', value: "couldn't read" });
   assert.equal(partial.label, "Machine load: CPU 38%, memory couldn't read.");
   const gpuNull = build({ machine: ok({ cpuLoadPercent: 1, memoryPressurePercent: 2, gpu: { utilizationPercent: null, memoryUsedBytes: null, memoryTotalBytes: null } }) }).load;
   assert.deepEqual(gpuNull.rings[2], { key: 'gpu', pct: null, f: null, high: false });
-  assert.deepEqual(gpuNull.rows[2], { name: 'GPU', value: "couldn't read" });
+  assert.deepEqual(gpuNull.rows[2], { name: 'GPU', pct: null, more: '', value: "couldn't read" });
   const failed = build({ machine: down('cannot_read_machine', { attempted: at(2) }) }).load;
   assert.deepEqual(failed.rings.map((x) => [x.key, x.f]), [['cpu', null], ['memory', null]]);
   assert.deepEqual(failed.rows, []);
@@ -428,7 +428,7 @@ test('harness fixtures: every ?ci= and ?load= state builds, and the mixed rows j
       ended: pick(await get('/api/sources/v1/ci/ended'), 'ended'), machine: pick(await get('/api/sources/v1/machine'), 'machine') };
     const now = Date.parse(env.checkedAt);
     const vm = M.buildSources(env, { now }).vm;
-    return { env, feeds, vm, sandbox, get, result: C.build(feeds, { now, vm, envelope: env }) };
+    return { env, feeds, vm, sandbox, get, result: C.build(feeds, { now, vm }) };
   }
   const mixed = await scene('ci=mixed');
   const ids = new Set();

@@ -374,6 +374,8 @@ button.src:hover, button.src.is-open { background: var(--hover); }
 .choice.plain > input { grid-column: 2; }
 .source-row { grid-template-columns: 28px 1fr auto; align-items: center; }
 .source-row .btn { height: 26px; padding: 0 10px; }
+/* Settings → Sources → GitHub: one switch; what the reader last saw sits under its description. */
+.github-status { margin-top: 3px; }
 .target-row, .summary-row { grid-template-columns: 28px 1fr; align-items: start; }
 /* A choice is a switch at the row's end, as in System Settings. */
 .choice input { -webkit-appearance: none; appearance: none; flex: none; position: relative; margin: 0; width: 32px; height: 20px; border-radius: 10px; background: var(--control-border); }
@@ -443,6 +445,7 @@ button.src:hover, button.src.is-open { background: var(--hover); }
 .ap-presets { display: flex; margin-left: -3px; }
 .ap-preset { flex: none; display: grid; place-items: center; width: 28px; height: 28px; margin: 0; padding: 0; border: 0; border-radius: 50%; background: none; }
 .ap-preset:focus-visible { outline-offset: 0; border-radius: 50%; }
+.ap-preset[hidden] { display: none; }
 .ap-swatch { display: block; width: 22px; height: 22px; border-radius: 50%; background: var(--c, var(--secondary)); }
 .ap-preset[aria-checked="true"] .ap-swatch { outline: 2px solid var(--accent, var(--focus)); outline-offset: 1px; }
 .ap-hex {
@@ -456,3 +459,95 @@ button.src:hover, button.src.is-open { background: var(--hover); }
 .ap-note { margin: 6px 0 0; font-size: 13px; line-height: 1.4; font-weight: 420; color: var(--secondary); }
 .ap-note.strong { font-weight: 560; color: var(--title); }
 .ap-note[hidden] { display: none; }
+
+/* ---- Checks, deployments, pull requests, load ---- */
+/* Circles are checks, triangles deployments (design/themes/creative-direction.md, Part 2). Each
+   mark is 16 px with 2 px strokes in a 24 × 28 target; the hue is the signal and never themed:
+   green passed, red failed, blue running, yellow waiting; a dated mark is the same shape in grey.
+   Knock-outs (the cross, the check on a solid disc, the bar) are cut in the sheet's colour. */
+.mark { --mc: var(--stroke); flex: none; display: block; width: 16px; height: 16px; overflow: visible; }
+.mark.ci-passed, .mark.ci-merged, .mark.deploy-success, .mark.pr-merged { --mc: var(--green); }
+.mark.ci-failed, .mark.deploy-failed { --mc: var(--red); }
+.mark.ci-running, .mark.deploy-running { --mc: var(--blue); }
+.mark.deploy-waiting { --mc: var(--amber); }
+.mark.pr-open { --mc: var(--secondary); }
+.mark.dated { --mc: var(--stroke); }
+.mark .s { fill: none; stroke: var(--mc); stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+.mark .f { fill: var(--mc); }
+.mark .k { fill: none; stroke: var(--bg); stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+.mark .t { fill: none; stroke: var(--track); stroke-width: 2; }
+.mark .w16 { stroke-width: 1.6; }
+.mark .w18 { stroke-width: 1.8; }
+.mark[class*=" pr-"] .s { stroke-width: 3; } /* Lucide's 24-unit glyph drawn at 16 px: still 2 px */
+.mk { flex: none; display: grid; place-items: center; width: 24px; height: 28px; border-radius: 6px; color: inherit; text-decoration: none; }
+.mk[hidden] { display: none; }
+a.mk:hover { background: var(--hover); }
+.mk:focus-visible { outline-offset: 0; border-radius: 6px; }
+
+/* On an agent row: up to two marks at the trailing edge of its first line, beside the row's
+   link, never inside it. The status column's first line moves left to make room; its second
+   line still runs to the margin. */
+.item.has-marks { position: relative; }
+.marks { position: absolute; z-index: 2; top: 0; right: 12px; display: flex; }
+.has-marks > .row.parent + .marks { top: -1px; }
+.row.mk1 .aside { padding-right: 24px; }
+.row.mk2 .aside { padding-right: 48px; }
+.row.mk1 .aside > .note:not(:first-child) { margin-right: -24px; }
+.row.mk2 .aside > .note:not(:first-child) { margin-right: -48px; }
+
+/* In the header: the checks ring, a deployment in flight, the load ring. */
+.gauges { flex: none; display: flex; align-items: center; gap: 2px; }
+.gauges:empty { display: none; }
+.flags:empty + .gauges:not(:empty), .flags:empty + .gauges:empty + .gear { margin-left: auto; }
+.gauge { flex: none; display: inline-flex; align-items: center; justify-content: center; gap: 2px; min-width: 24px; height: 30px; box-sizing: border-box; margin: 0; padding: 0 2px; border: 0; border-radius: 8px; background: transparent; }
+.gauge:hover, .gauge.is-open { background: var(--hover); }
+.gauge svg { display: block; flex: none; overflow: visible; }
+.cgauge svg { width: 20px; height: 20px; }
+.lgauge { min-width: 26px; }
+.lgauge svg { width: 22px; height: 22px; }
+.gauge-n { padding-right: 1px; font-size: 15px; line-height: 1; font-weight: 650; color: var(--red-text); font-variant-numeric: tabular-nums; }
+.cring .seg { fill: none; stroke-width: 3; }
+.cring .seg.failed { stroke: var(--red); }
+.cring .seg.running { stroke: var(--blue); }
+.cring .seg.passed { stroke: var(--green); }
+.cring.dated .seg { stroke: var(--stroke); }
+.cring .u { fill: none; stroke: var(--stroke); stroke-width: 2; stroke-linecap: round; }
+.cring .uq { fill: none; stroke: var(--stroke); stroke-width: 1.6; stroke-linecap: round; }
+.cring .ud { fill: var(--stroke); }
+.lring .t { fill: none; stroke: var(--track); stroke-width: 2; }
+.lring .a { fill: none; stroke: var(--secondary); stroke-width: 2; stroke-linecap: round; }
+.lring .a.high { stroke: var(--amber); }
+.lring .u { fill: none; stroke: var(--stroke); stroke-width: 2; stroke-linecap: round; }
+/* The exact load numbers, in the dial detail's look. */
+.load-detail .dd-row { grid-template-columns: 104px minmax(74px, auto) 1fr; }
+
+/* Pull requests waiting on the owner: a group built like a project, rose because it waits on you. */
+.pi-prs { color: var(--rose); }
+.pi-prs .glyph { width: 16px; height: 16px; color: var(--rose); }
+.prs .proj-name { flex: 0 1 auto; }
+.proj-asof { font-size: 13px; line-height: 20px; font-weight: 420; color: var(--tertiary); white-space: nowrap; font-variant-numeric: tabular-nums; }
+.prs .proj-head .chip { margin-left: auto; }
+.row.pr .aside { display: flex; flex-direction: column; align-items: flex-end; }
+.why-line { display: inline-flex; align-items: center; gap: 6px; height: 20px; }
+.why-line .why { display: inline; line-height: 20px; }
+.pr-ref { display: block; line-height: 18px; font-variant-numeric: normal; }
+.geo .n-pr { fill: none; stroke: var(--rose); stroke-width: 2; }
+.prs-more-item { padding: 0 16px 2px var(--x0); }
+.prs-more { margin: 0; padding: 4px 0; border: 0; border-radius: 4px; background: none; font-size: 13px; font-weight: 560; color: var(--secondary); }
+.prs-more:hover { text-decoration: underline; text-decoration-thickness: 1.5px; text-underline-offset: 3px; }
+
+/* What finished agents produced: `6 PRs` and one mark per pull request under the Ended line. */
+.results { display: flex; flex-wrap: wrap; align-items: center; margin-top: -4px; padding: 0 16px 2px var(--x0); }
+.res-count { margin-right: 6px; font-size: 13px; font-weight: 420; color: var(--secondary); white-space: nowrap; font-variant-numeric: tabular-nums; }
+.res-count b { font-size: 15px; font-weight: 650; color: var(--title); }
+.mk.res { width: 24px; }
+.res-more, .res-asof, .res-failed { font-size: 13px; font-weight: 420; color: var(--secondary); white-space: nowrap; font-variant-numeric: tabular-nums; }
+.res-more { margin-left: 4px; }
+.res-more[hidden] { display: none; }
+.problem.result .aside { display: inline-flex; align-items: center; justify-content: flex-end; gap: 6px; }
+.cgauge.is-dated .gauge-n { color: var(--secondary); }
+/* The headline keeps its width beside the gauges; flags that would stack three high get a line. */
+.top > .status { flex-shrink: 0; }
+.top.flags-below { flex-wrap: wrap; }
+.top.flags-below .flags { order: 1; flex: 1 0 100%; margin: -10px 0 6px; }
+.top.flags-below .gauges { margin-left: auto; }

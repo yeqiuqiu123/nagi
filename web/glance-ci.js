@@ -9,12 +9,11 @@
 //     Outcome  {status, attemptedAt, checkedAt, reason, data}: the route's `ci`/`pulls`/`ended`/`machine`
 //     null     the route answered 404 (a reader without the feature)
 //     undefined the fetch failed (the reader itself didn't answer)
-//   ctx = { now, vm, envelope?, prev? }
+//   ctx = { now, vm, prev? }
 //     vm        NagiModel.buildSources(envelope).vm: `vm.list[].rows[]` (and their children) are the
 //               running rows; their `id` is the raw agent id, the same string as the contract's
-//               `agentIds`, with no source prefix.
-//     envelope  the raw /api/sources/v1/glance envelope. Needed for Ended results: the Ended view
-//               model keeps only grouped failed/stopped threads and no agent ids.
+//               `agentIds`, with no source prefix. `vm.endedAll.groups[].agents` lists every ended
+//               thread's id and title, which is what Ended results join to.
 //     prev      the last feeds that did answer, { ci, pulls, ended, machine }. When a feed is
 //               undefined, a previous reading is shown dated (as of its own check) and a previous
 //               404 or "off" stays silent. With no previous reading, an undefined feed draws nothing.
@@ -45,13 +44,14 @@
 //     byAgent: { [agentId]: { number, word: 'merged'|'open'|'draft'|'closed'|'changes'|'merge'|null,
 //                             mark: Mark|null, href, label } },
 //     byProject: { [endedGroupKey]: [{ agentId, title, number, word, mark, href, label }] },
-//                // keys match vm.endedAll.groups[].key; empty without ctx.envelope
+//                // keys match vm.endedAll.groups[].key; empty without vm.endedAll
 //     failed: null | { words } },
 //   load: null | {
 //     rings: [{ key: 'cpu'|'memory'|'gpu', pct: number|null, f: 0..1|null, high: bool }],
 //            // CPU outside, memory, GPU innermost and only when there is one; f null = dashed
-//     rows: [{ name: 'CPU'|'Memory'|'GPU', value }],     // `31%`, `couldn't read`, `12% · 3.1 of 24 GB`
-//     dated: bool, failed: null | { words }, label },
+//     rows: [{ name: 'CPU'|'Memory'|'GPU', value, pct, more }],
+//            // value `31%` | `couldn't read` | `12% · 3.1 of 24 GB`; pct `12%`|null; more `3.1 of 24 GB`|''
+//     dated: bool, asOf: 'as of HH:MM'|'', failed: null | { words }, label },
 //   rail: null | { state: 'absent'|'down'|'checking'|'dated'|'partial', words, detail, said },
 //            // what the `GH` chip says; null when GitHub is off or has nothing to explain
 // }
@@ -200,23 +200,12 @@
     ((vm && vm.list) || []).forEach((p) => (p.rows || []).forEach(walk));
     return ids;
   }
-  // Ended agents from the raw envelope, keyed by agent id, with the Ended group key the view
-  // model uses: the project id, prefixed with the source id when several sources are connected.
-  function endedAgents(env) {
+  // Ended agents from the view model's Ended groups, keyed by agent id, with the group's key
+  // (the project id, prefixed with the source id when several sources are connected).
+  function endedAgents(vm) {
     const out = new Map();
-    const sources = env && Array.isArray(env.sources) ? env.sources : [];
-    const many = sources.length > 1;
-    for (const s of sources) {
-      const data = s && s.agents && obj(s.agents.data) ? s.agents.data : null;
-      for (const p of (data && data.ended) || []) {
-        const key = (many && s.source ? s.source.id + ':' : '') + p.id;
-        const walk = (a) => {
-          if (!obj(a)) return;
-          if (!a.contextOnly && !out.has(String(a.id))) out.set(String(a.id), { title: a.title, key });
-          (a.children || []).forEach(walk);
-        };
-        (p.agents || []).forEach(walk);
-      }
+    for (const g of (vm && vm.endedAll && vm.endedAll.groups) || []) {
+      for (const a of g.agents || []) if (!out.has(String(a.id))) out.set(String(a.id), { title: a.title, key: g.key });
     }
     return out;
   }
@@ -301,11 +290,11 @@
   const NEEDS = { changes_requested: 'changes', ready_to_merge: 'merge' };
   const WORD_SAID = { merged: 'merged', open: 'open', draft: 'a draft', closed: 'closed', changes: 'changes requested', merge: 'ready to merge' };
   const PR_STATE = { merged: 'merged', closed: 'closed', draft: 'draft' };
-  function results(o, now, env) {
+  function results(o, now, vm) {
     if (!o || off(o) || checking(o)) return null;
     if (!readable(o)) return { count: null, partial: false, dated: false, asOf: '', marks: [], byAgent: {}, byProject: {}, failed: { words: tried(o, now) } };
     const when = dated(o) ? asOf(o) : '';
-    const ended = env ? endedAgents(env) : null;
+    const ended = vm ? endedAgents(vm) : null;
     const raw = Array.isArray(o.data.rows) ? o.data.rows : [];
     const byAgent = {}; const byProject = {}; const prs = new Map();
     let dropped = false;
@@ -343,34 +332,37 @@
     if (!o || off(o) || checking(o)) return null;
     if (!readable(o)) {
       const words = tried(o, now);
-      return { rings: [{ key: 'cpu', pct: null, f: null, high: false }, { key: 'memory', pct: null, f: null, high: false }], rows: [], dated: false,
+      return { rings: [{ key: 'cpu', pct: null, f: null, high: false }, { key: 'memory', pct: null, f: null, high: false }], rows: [], dated: false, asOf: '',
         failed: { words }, label: "Machine load: couldn't check, tried " + hm(ms(o.attemptedAt) != null ? ms(o.attemptedAt) : now) + '.' };
     }
     const d = o.data;
     const ring = (key, p) => ({ key, pct: p, f: p == null ? null : Math.min(1, p / 100), high: p != null && p >= 90 });
     const cpu = num(d.cpuLoadPercent); const mem = num(d.memoryPressurePercent);
     const rings = [ring('cpu', cpu), ring('memory', mem)];
-    const rows = [{ name: 'CPU', value: cpu == null ? "couldn't read" : pctText(cpu) }, { name: 'Memory', value: mem == null ? "couldn't read" : pctText(mem) }];
+    const reading = (name, p, more) => ({ name, pct: p == null ? null : pctText(p), more: more || '',
+      value: [p == null ? "couldn't read" : pctText(p), more].filter(Boolean).join(' · ') });
+    const rows = [reading('CPU', cpu), reading('Memory', mem)];
     const said = [['CPU', cpu], ['memory', mem]];
     // No GPU means no third ring and no row, never a zero.
     if (obj(d.gpu)) {
       const util = num(d.gpu.utilizationPercent); const used = num(d.gpu.memoryUsedBytes); const total = num(d.gpu.memoryTotalBytes);
       rings.push(ring('gpu', util));
       const memText = used != null && total ? gb(used) + ' of ' + gb(total) + ' GB' : '';
-      rows.push({ name: 'GPU', value: [util == null ? "couldn't read" : pctText(util), memText].filter(Boolean).join(' · ') });
+      rows.push(reading('GPU', util, memText));
       said.push(['GPU', util, memText]);
     }
     const when = dated(o) ? asOf(o) : '';
     const label = 'Machine load: ' + said.map(([n, p, m]) => n + ' ' + (p == null ? "couldn't read" : pctText(p) + (p >= 90 ? ', high' : '')) + (m ? ', ' + m.replace(' GB', ' gigabytes') : '')).join(', ') + '.'
       + (when ? ' ' + when.charAt(0).toUpperCase() + when.slice(1) + '.' : '');
-    return { rings, rows, dated: !!when, failed: null, label };
+    return { rings, rows, dated: !!when, asOf: when, failed: null, label };
   }
 
   // ---- The GH chip on the source rail ---------------------------------------------------
+  // The rail prints `GitHub` in bold before the detail, so the detail never repeats the name.
   const DOWN_DETAIL = {
-    cannot_reach_github: "GitHub couldn't be reached.",
-    rate_limited: 'GitHub asked Nagi to slow down. It will try again.',
-    invalid_response: "GitHub's answer couldn't be read.",
+    cannot_reach_github: "Couldn't reach github.com.",
+    rate_limited: 'Asked by GitHub to slow down. Nagi will try again.',
+    invalid_response: "Its answer couldn't be read.",
     coverage_incomplete: "Some checks couldn't be read.",
     branch_unavailable: "A watched branch couldn't be found on GitHub.",
     not_github: "A watched project isn't on GitHub.",
@@ -383,16 +375,16 @@
       if (ci.reason === 'disabled') return null; // off is silent
       if (ci.reason === 'gh_missing') return make('absent', 'not set up', "The GitHub CLI isn't installed on this computer.");
       if (ci.reason === 'gh_signed_out') return make('absent', 'not set up', 'Sign in with gh auth login to show checks and pull requests.');
-      return make('absent', 'not set up', "GitHub isn't set up on this computer.");
+      return make('absent', 'not set up', 'Not set up on this computer.');
     }
     if (checking(ci)) return make('checking', 'checking…', '');
     if (!readable(ci)) {
       const last = ms(ci.checkedAt) != null ? ' Last read ' + hm(ms(ci.checkedAt)) + '.' : '';
-      return make('down', tried(ci, now), (DOWN_DETAIL[ci.reason] || "GitHub couldn't be read.") + last);
+      return make('down', tried(ci, now), (DOWN_DETAIL[ci.reason] || "Couldn't be read.") + last);
     }
     if (dated(ci)) {
       const at = ms(ci.checkedAt);
-      return make('dated', at != null ? 'last seen ' + hm(at) : 'last seen earlier', (DOWN_DETAIL[ci.reason] || "GitHub couldn't be read.") + ' Tried ' + hm(ms(ci.attemptedAt) != null ? ms(ci.attemptedAt) : now) + '.');
+      return make('dated', at != null ? 'last seen ' + hm(at) : 'last seen earlier', (DOWN_DETAIL[ci.reason] || "Couldn't be read.") + ' Tried ' + hm(ms(ci.attemptedAt) != null ? ms(ci.attemptedAt) : now) + '.');
     }
     const partial = [ci, ...others].some((o) => readable(o) && (o.data.omitted === true || o.reason === 'coverage_incomplete'));
     if (partial) return make('partial', 'partial list', "Some branches or pull requests couldn't be read, so counts may be higher.");
@@ -410,7 +402,7 @@
     const c = checks(f.ci, now, ctx.vm);
     return {
       available, byAgent: c.byAgent, header: c.header,
-      pulls: pulls(f.pulls, now), results: results(f.ended, now, ctx.envelope), load: load(f.machine, now),
+      pulls: pulls(f.pulls, now), results: results(f.ended, now, ctx.vm), load: load(f.machine, now),
       rail: rail(f.ci, [f.pulls, f.ended], now),
     };
   }

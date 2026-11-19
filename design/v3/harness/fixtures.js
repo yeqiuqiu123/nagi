@@ -5,7 +5,7 @@
 //
 // ?scene= calm | asks | stuck | both | low | limitsfail | datedlimits | unreachable | never |
 //         notsetup | checking | quiet | nothing | first | overflow | multi | friend | sixdials
-// ?ci=   off (default) | none | mixed | green | down | dated | signedout | rowdown | partial
+// ?ci=   off (default) | none | mixed | green | down | dated | signedout | rowdown | partial | many (7 PRs waiting, 15 results)
 // ?load= calm | gpu | hot | partial | down (default: the machine route answers 404)
 // ?theme= violet (default) | graphite | tide   ?appearance= system (default) | light | dark
 // ?colors=accent:ff8800,claude:9a7bf0 (roles accent, claude, codex, gemini, t3), saved settings' theme.
@@ -187,9 +187,13 @@
         checksOf('passed', 9, 9, 0, gh(ks, 'pull/57')), deployOf(kind === 'rowdown' ? 'unknown' : 'success', 'staging', ks)),
     ];
   }
+  const pullRow = (repo, number, title, why, ci, minutes) => ({ repo: 'tidepool-labs/' + repo, number, title, url: gh('tidepool-labs/' + repo, 'pull/' + number), why, ci, updatedAt: ago(minutes) });
   const pullRows = (kind) => (kind === 'green' ? [] : [
-    { repo: 'tidepool-labs/lantern-docs', number: 91, title: 'Add a search index', url: gh('tidepool-labs/lantern-docs', 'pull/91'), why: 'review_requested', ci: 'passed', updatedAt: ago(6) },
-    { repo: 'tidepool-labs/kestrel', number: 55, title: 'Upgrade the Postgres driver', url: gh('tidepool-labs/kestrel', 'pull/55'), why: 'ready_to_merge', ci: 'passed', updatedAt: ago(30) },
+    pullRow('lantern-docs', 91, 'Add a search index', 'review_requested', 'passed', 6),
+    pullRow('kestrel', 55, 'Upgrade the Postgres driver', 'ready_to_merge', 'passed', 30),
+    ...(kind === 'many' ? [pullRow('tidepool', 133, 'Retry uploads with backoff', 'changes_requested', 'failed', 41),
+      pullRow('tidepool', 134, 'Pull request #134', 'review_requested', 'running', 52), pullRow('kestrel', 58, 'Trim the error envelope', 'review_requested', null, 64),
+      pullRow('lantern-docs', 92, 'Fix the sidebar on narrow screens', 'ready_to_merge', 'passed', 80), pullRow('tidepool', 135, 'Bump the date library', 'review_requested', 'none', 95)] : []),
   ]);
   const endedRow = (repo, title, start, number, ci, mergeState) => ({ agentId: idOf(title, start), repo, number, title: 'Pull request #' + number,
     url: gh(repo, 'pull/' + number), ci, mergeState, updatedAt: ago(start - 5) });
@@ -201,7 +205,12 @@
     if (kind === 'green') return merged;
     return [...merged, endedRow(tp, 'Tidepool: Bump the image library', 270, 126, 'passed', 'open'),
       endedRow(ks, 'Load test the token bucket on staging', 60, 53, 'failed', 'open'),
-      endedRow(tp, 'Tidepool: Map the sync states', 50, 130, 'running', 'draft')];
+      endedRow(tp, 'Tidepool: Map the sync states', 50, 130, 'running', 'draft'),
+      ...(kind === 'many' ? [endedRow(tp, 'Tidepool: Spike CRDT libraries', 60, 120, 'cancelled', 'closed'), endedRow(tp, 'Tidepool: Draft the sync protocol notes', 70, 121, 'none', 'merged'),
+        endedRow(tp, 'Tidepool: Profile cold start', 140, 122, null, 'open'), endedRow(ks, 'Load test the token bucket on staging', 62, 54, 'failed', 'changes_requested'),
+        endedRow(ks, 'Kestrel: Upgrade the Postgres driver', 310, 50, 'passed', 'ready_to_merge'), endedRow(ks, 'Kestrel: Document the pagination cursor', 420, 49, 'passed', 'merged'),
+        endedRow(ld, 'Lantern: Fix broken links in the API reference', 530, 86, 'passed', 'merged'), endedRow(ld, 'Lantern: Add a search index', 710, 85, 'running', 'open'),
+        endedRow(ld, 'Lantern: Regenerate the changelog', 800, 84, 'passed', 'merged')] : [])];
   };
   // One outcome per route for the chosen ?ci= state; `undefined` means the route answers 404.
   function ciFeed(route) {

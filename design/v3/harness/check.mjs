@@ -115,5 +115,27 @@ await check('The Mac density (0.85) keeps every dial on one row and nothing clip
   await context.close();
 });
 
+await check('A checks mark is a Tab stop right after its row, labelled, and links to GitHub', async () => {
+  const { page, context, errors } = await open('calm&ci=mixed&load=gpu');
+  await page.focus('#past .item.has-marks > .row');
+  await page.keyboard.press('Tab');
+  const mark = await page.evaluate(() => { const el = document.activeElement; const s = getComputedStyle(el);
+    return { mk: el.classList.contains('mk'), label: el.getAttribute('aria-label') || '', href: el.getAttribute('href') || '', ring: s.outlineStyle !== 'none' && parseFloat(s.outlineWidth) >= 2,
+      size: [el.offsetWidth, el.offsetHeight] }; });
+  assert.ok(mark.mk, 'focus is not on a mark');
+  assert.match(mark.label, /^Checks /);
+  assert.match(mark.href, /^https:\/\/github\.com\//);
+  assert.ok(mark.ring, 'no focus ring');
+  assert.ok(mark.size[0] >= 24 && mark.size[1] >= 28, 'target ' + mark.size.join('x'));
+  // The load ring opens its numbers; Escape closes them before it closes the panel.
+  await page.click('[data-key="gauge:load"]');
+  assert.equal(await page.evaluate(() => document.getElementById('load-detail').hidden), false);
+  await page.keyboard.press('Escape');
+  assert.equal(await page.evaluate(() => document.getElementById('load-detail').hidden), true);
+  assert.equal(await page.evaluate(() => window.__nagi.closed), false);
+  assert.deepEqual(errors, []);
+  await context.close();
+});
+
 await browser.close();
 console.log(results.join('\n'));
