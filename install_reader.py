@@ -135,6 +135,7 @@ def install(platform, directory, port, executable, home):
     executable = str(Path(executable).resolve(strict=True))
     import subprocess
     subprocess.run([executable, '-c', 'import sys; sys.exit(sys.version_info < (3, 11))'], check=True, timeout=5)
+    validate_status_launcher(home)
     from owner_auth import owner_secret
     ensure_directory(directory, home)
     owner_secret(directory, create=True)
@@ -181,7 +182,7 @@ def install(platform, directory, port, executable, home):
 STATUS_MARKER = b'#!/bin/sh\n# Installed by Nagi\n'
 
 
-def write_status_launcher(home, executable, port):
+def validate_status_launcher(home):
     path = owned_path(home/'.local/bin/nagi', home)
     try:
         with os.fdopen(os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK), 'rb') as existing:
@@ -190,6 +191,11 @@ def write_status_launcher(home, executable, port):
                 raise ValueError('The nagi command is already in use')
     except FileNotFoundError:
         pass
+    return path
+
+
+def write_status_launcher(home, executable, port):
+    path = validate_status_launcher(home)
     command = shlex.join([executable, '-E', '-B', str(ROOT/'nagi_cli.py')])
     template = (f'NAGI_PORT=${{NAGI_PORT:-{port}}}\nexport NAGI_PORT\n'
                 f'exec {command} "$@"\n')

@@ -48,6 +48,23 @@ class InstallerTests(TestCase):
             with self.assertRaises(ValueError):
                 install_reader.install('linux', home / 'alias/data', 47841, sys.executable, home)
 
+    def test_launcher_conflict_leaves_service_setup_unwritten(self):
+        for platform in ('linux', 'darwin'):
+            for symlink in (False, True):
+                with TemporaryDirectory() as temp:
+                    home = Path(temp)
+                    launcher = home / '.local/bin/nagi'
+                    launcher.parent.mkdir(parents=True)
+                    foreign = home / 'foreign' if symlink else launcher
+                    foreign.write_text('owned by another command')
+                    if symlink:
+                        launcher.symlink_to(foreign)
+                    with self.assertRaises(ValueError):
+                        install_reader.install(platform, home/'data', 47841, sys.executable, home)
+                    self.assertEqual(foreign.read_text(), 'owned by another command')
+                    self.assertFalse((home/'data').exists())
+                    self.assertFalse((home/('Library' if platform=='darwin' else '.config')).exists())
+
     def test_default_and_custom_runtime_resolver_agrees_with_installer_and_clients(self):
         for platform in ('linux','darwin'):
             with TemporaryDirectory() as temp, patch.dict(os.environ,{},clear=True), patch('runtime_paths.Path.home',return_value=Path(temp)), patch('sys.platform',platform):

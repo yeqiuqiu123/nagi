@@ -19,7 +19,12 @@ def agent_counts(sources):
         data = value['data']
         environment = data['environmentId']
         # Cursor's passive hooks cannot reliably distinguish T3-hosted runs.
-        if environment in environments or (local_t3 and source['source']['harness']=='cursor'):
+        if local_t3 and source['source']['harness']=='cursor':
+            # Local T3 owns the aggregate. An overlapping Cursor source only
+            # makes it partial when it actually has a count we excluded.
+            partial |= any(data['counts'][key] for key in ('running', 'waitingOnYou', 'stuck'))
+            continue
+        if environment in environments:
             partial = True
             continue
         environments.add(environment)
@@ -64,7 +69,7 @@ def ci_summary(ci):
         state = 'failed'
     elif ci['reason']=='disabled':
         state = 'disabled'
-    elif ci['status']=='quiet' or (ci['status']=='ok' and data and not data['omitted']
+    elif ci['status']=='quiet' or ci['reason']=='not_github' or (ci['status']=='ok' and data and not data['omitted']
                                   and all(row['ci']['status']=='ok' for row in data['rows'])):
         state = 'ok'
     else:
