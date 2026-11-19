@@ -63,6 +63,7 @@ class T3Adapter:
         attempted = now.isoformat()
         rows = modes = None
         icon_sources = {}
+        workspaces = {}
         success=False
         try:
             reader=service.factory(service.store.directory)
@@ -97,6 +98,15 @@ class T3Adapter:
                 agents=service.failed('unavailable',attempted,'cyclic_lineage',caches.get('agents'));rows=modes=None
             else:
                 icon_sources=service.attach_icons(data,snapshot)
+                roots={p['id']:p.get('workspaceRoot') for p in snapshot['projects']
+                       if isinstance(p,dict) and isinstance(p.get('id'),str)}
+                for thread in snapshot['threads']+snapshot.get('archivedThreads',[]):
+                    if not isinstance(thread,dict) or not isinstance(thread.get('id'),str):
+                        continue
+                    identity=thread['id']
+                    if modes.get(identity) and identity not in workspaces:
+                        root=roots.get(rows[identity]['projectId'])
+                        workspaces[identity]=(thread.get('worktreePath') or root,thread.get('branch'),root)
                 agents=outcome('ok' if data['projects'] or data['ended'] or data['omittedRows'] else 'quiet',attempted,attempted,data=data)
             limits=service.project_limits(providers,attempted,now,caches,config_ok)
             success=True
@@ -106,7 +116,7 @@ class T3Adapter:
             agents=service.failed(status,attempted,reason,caches.get('agents'))
             limits={key:service.failed(status,attempted,'not_configured' if status=='not_set_up' else 'cannot_reach_t3',caches.get(key),now) for key in ('codex','claude')}
         for value in limits.values():value.setdefault('warnings',[])
-        return {'agents':agents,'limits':limits,'rows':rows,'modes':modes,'icon_sources':icon_sources,'success':success}
+        return {'agents':agents,'limits':limits,'rows':rows,'modes':modes,'icon_sources':icon_sources,'success':success,'workspaces':workspaces}
 
 
 ADAPTERS = {'t3': T3Adapter()}

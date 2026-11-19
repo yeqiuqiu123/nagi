@@ -142,6 +142,17 @@ def read_state(origin, transport=None):
         return strict_json_loads(response.read(8*1024*1024+1),8*1024*1024,max_depth=160)
 
 
+def read_ci_failed(origin, transport=None):
+    from urllib.request import Request
+    from jsonio import strict_json_loads
+    from ci_service import failed_repos
+    if transport is None:
+        from owner_auth import authenticated_open as transport
+    with transport(Request(origin+'/api/sources/v1/ci'),timeout=2) as response:
+        value = strict_json_loads(response.read(512*1024+1),512*1024)
+    return bool(failed_repos(value['ci']))
+
+
 RESTART_DELAY=3
 RESTART_WINDOW=60
 RESTART_LIMIT=5

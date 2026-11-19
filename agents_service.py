@@ -43,6 +43,15 @@ def validate_limit_event(event):
     if event['links']!={'desktop':None,'web':None}:raise ValueError()
 
 
+def validate_ci_event(event):
+    from ci_workspace import repo_name
+    if (not isinstance(event,dict) or set(event)!={'id','kind','repo','occurredAt','links'}
+            or event['kind']!='ci_failed' or not repo_name(event['repo'])
+            or event['links']!={'desktop':None,'web':None}):raise ValueError()
+    AgentsService.event_id(event['id'])
+    stamp(event['occurredAt'])
+
+
 class AgentsService:
     def __init__(self,directory,reader_factory=T3Reader,clock=utcnow,*,source_id=None):
         self.store=LocalStore(directory);self.factory=reader_factory;self.clock=clock
@@ -52,7 +61,7 @@ class AgentsService:
         self.poll_gate=threading.Lock();self.revision=0;self.journal_warning=False
         self.config_cache=None;self.config_at=None;self.config_valid=False
         # Favicon sources stay here, keyed by opaque project keys; paths never reach a DTO.
-        self.icon_sources={};self.icon_cache={}
+        self.icon_sources={};self.icon_cache={};self.ci_workspaces=()
         at=self.clock().isoformat()
         self.agents=outcome('unavailable',at,reason='checking')
         self.providers={key:{**outcome('unavailable',at,reason='checking'),'warnings':[]} for key in ('codex','claude')}
@@ -84,15 +93,21 @@ class AgentsService:
         if not isinstance(alerts,dict) or len(alerts)>2048:raise ValueError()
         for key,reset in alerts.items():
             AgentsService.event_id(key);stamp(reset)
+        ci_alerts=value.get('ciAlerts',[])
+        if not isinstance(ci_alerts,list) or len(ci_alerts)>100_000:raise ValueError()
+        for identity in ci_alerts:AgentsService.event_id(identity)
         for condition in value.get('conditions',{}).values():
             if not isinstance(condition,dict):raise ValueError()
             for field in ('failedGeneration','stuckGeneration'):
                 if type(condition.get(field,0)) is not int or condition.get(field,0)<0:raise ValueError()
             if 'lastSeenAt' in condition:stamp(condition['lastSeenAt'])
         for event in value.get('events',[]):
-            if not isinstance(event,dict) or event.get('kind') not in ('failed','stuck','low_limit') or type(event.get('claimed')) is not bool:raise ValueError()
+            if not isinstance(event,dict) or event.get('kind') not in ('failed','stuck','low_limit','ci_failed') or type(event.get('claimed')) is not bool:raise ValueError()
             if not isinstance(event.get('id'),str) or len(event['id'])!=64:raise ValueError()
             stamp(event['occurredAt'])
+            if event['kind']=='ci_failed':
+                validate_ci_event(AgentsService.public_event(event))
+                continue
             if event['kind']=='low_limit':
                 validate_limit_event(AgentsService.public_event(event))
                 continue
@@ -139,12 +154,12 @@ class AgentsService:
         except (OSError,ValueError,KeyError,TypeError,RecursionError):
             self.journal_warning=True;return {}
 
-    def mutate_journal(self,build):
+    def mutate_journal(self,build,*,repair=True):
         self.journal()
         def apply(value):
             if self.journal_warning:value['recovered']=True
             return build(value)
-        return self.store.mutate(self.journal_name,{},apply,repair=True,validate=self.validate_journal)
+        return self.store.mutate(self.journal_name,{},apply,repair=repair,validate=self.validate_journal)
 
     @staticmethod
     def validate_settings(value):
@@ -193,6 +208,8 @@ class AgentsService:
                                 self.limit_observations.add((provider,account['id'],window.get('id'),window['checkedAt']))
                 if success:self.record(agents,limits,rows,modes,now,settings)
                 if success and rows is not None:self.icon_sources=icon_sources
+                self.ci_workspaces=tuple((identity,mode,read.get('workspaces',{}).get(identity))
+                                         for identity,mode in (modes or {}).items() if mode) if agents['status']=='ok' else ()
                 self.agents=agents;self.providers=limits;self.last_poll=now
         finally:self.poll_gate.release()
 
@@ -451,7 +468,7 @@ class AgentsService:
                     event['lease']=secrets.token_urlsafe(32);event['leaseUntil']=(self.clock()+timedelta(seconds=30)).isoformat()
                     return {'reservation':event['lease'],'expiresAt':event['leaseUntil'],'event':self.public_event(event)}
             return None
-        return self.mutate_journal(build)
+        return self.mutate_journal(build,repair=self.source_id!='github-ci')
 
     def claim(self,identity,reservation,*,release=False,include_limits=False):
         self.event_id(identity)
@@ -465,4 +482,4 @@ class AgentsService:
                     event.pop('lease',None);event.pop('leaseUntil',None)
                     return self.public_event(event)
             return None
-        return self.mutate_journal(build)
+        return self.mutate_journal(build,repair=self.source_id!='github-ci')

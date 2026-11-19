@@ -105,6 +105,7 @@ class ClaudeAdapter:
     def read(self,service,now,settings,caches,force=False):
         at=now.isoformat();home=service.policy['home'];journal=service.journal()
         agents=outcome('unavailable',at,reason='local_data_missing');rows=modes=None
+        workspaces={}
         try:
             events=[]
             for suffix in ('.1',''):
@@ -119,6 +120,7 @@ class ClaudeAdapter:
                     session=event['sessionId'];agent=event.get('agentId');kind=event['event']
                     if not isinstance(session,str) or not isinstance(agent,(str,type(None))):continue
                     identity=session if not agent else session+'/'+agent
+                    if 'github' in event:workspaces[identity]=event['github']
                     # Only explicit starts produce a row. A subagent stop by itself
                     # may be an internal feature, not a user-visible agent.
                     if kind in ('UserPromptSubmit','SubagentStart'):
@@ -194,7 +196,9 @@ class ClaudeAdapter:
             service.claude_result=copy.deepcopy(limits)
         limits.setdefault('warnings',[])
         return {'agents':agents,'limits':{'claude':limits,'codex':{**outcome('unsupported',at,reason='account_unsupported'),'warnings':[]}},
-                'rows':rows,'modes':modes,'icon_sources':{},'success':True}
+                'rows':rows,'modes':modes,'icon_sources':{},'success':True,
+                'workspaces':{key:workspaces.get(key,workspaces.get(key.split('/',1)[0]))
+                              for key,mode in (modes or {}).items() if mode}}
 
 
 def expire_windows(value,now,at):

@@ -90,7 +90,18 @@ def main():
     value=json.loads(raw)
     if not isinstance(value,dict):return
     event=capture(value,os.environ)
-    if event:append(sys.argv[1],sys.argv[2],event)
+    if not event:return
+    if event['event'] in ('SessionStart','UserPromptSubmit','SubagentStart','Stop','SessionEnd','SubagentStop'):
+        sys.path.insert(0,str(Path(__file__).resolve().parent))  # The hook runs under python -I.
+        from ci_workspace import PREFERENCE, resolve_workspace
+        from nagi_store import LocalStore
+        try:
+            if LocalStore(sys.argv[1]).read(PREFERENCE, {}).get('enabled') is True:
+                pair=resolve_workspace(value.get('cwd'),timeout=.25)
+                event['github']=list(pair) if pair else []
+        except (OSError,ValueError,TypeError,AttributeError):
+            pass
+    append(sys.argv[1],sys.argv[2],event)
 
 
 if __name__=='__main__':

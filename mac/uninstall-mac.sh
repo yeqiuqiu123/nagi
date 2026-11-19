@@ -13,6 +13,10 @@ for label in local.nagi.app local.nagi.reader; do
 done
 /usr/bin/pkill -x -u "$(id -u)" Nagi 2>/dev/null || true
 rm -rf "$HOME/Applications/Nagi.app"
+launcher="$HOME/.local/bin/nagi"
+if [[ -f "$launcher" && ! -L "$launcher" && "$(sed -n '2p' "$launcher")" == '# Installed by Nagi' ]]; then
+    rm -f "$launcher"
+fi
 NAGI_HOME="$HOME/Library/Application Support/Nagi"
 if [[ "$PURGE" == 1 ]]; then
     rm -rf "$NAGI_HOME"

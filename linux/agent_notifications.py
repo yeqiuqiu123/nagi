@@ -8,7 +8,7 @@ from urllib.request import Request
 
 sys.path.insert(0,str(Path(__file__).resolve().parents[1]))
 from agents_projection import stamp, text
-from agents_service import validate_limit_event
+from agents_service import validate_ci_event, validate_limit_event
 from nagi_links import open_thread, thread_links
 from owner_auth import authenticated_open
 from jsonio import strict_json_loads
@@ -18,12 +18,19 @@ ACTION='open-thread'
 PANEL_ACTION='open-panel'
 PANEL_APP_ID='local.nagi.panel'
 NOTIFICATIONS_API='/api/sources/v1/notifications'
-SOURCE_ID=re.compile(r'(?:legacy-t3|[0-9a-f]{32})')
+SOURCE_ID=re.compile(r'(?:legacy-t3|github-ci|[0-9a-f]{32})')
 EVENT_ID=re.compile(r'[0-9a-f]{64}')
 RESERVATION=re.compile(r'[A-Za-z0-9_-]{43}')
 
 
+def panel_event(event):
+    return event['kind'] in ('low_limit','ci_failed')
+
+
 def valid_event(event):
+    if isinstance(event,dict) and event.get('kind')=='ci_failed':
+        try:validate_ci_event(event);return True
+        except (ValueError,TypeError,KeyError):return False
     if isinstance(event,dict) and event.get('kind')=='low_limit':
         try:validate_limit_event(event);return True
         except (ValueError,TypeError,KeyError):return False
@@ -42,6 +49,8 @@ def valid_event(event):
 
 
 def banner(event):
+    if event['kind']=='ci_failed':
+        return event['repo'], 'CI checks failed.'
     if event['kind']=='low_limit':
         return (event['accountLabel']+' · '+format(event['remainingPercent'],'g')+'% left',
                 'resets '+stamp(event['resetsAt']).astimezone().strftime('%a %H:%M'))
@@ -109,7 +118,7 @@ class NotificationConsumer:
                     continue
                 event=lease['event']
                 sent=False
-                try:sent=self.send(event,self.on_panel if event['kind']=='low_limit' else lambda value=event['links']['desktop']:open_thread(value,self.opener,self.has_handler)) is True
+                try:sent=self.send(event,self.on_panel if panel_event(event) else lambda value=event['links']['desktop']:open_thread(value,self.opener,self.has_handler)) is True
                 except Exception:pass
                 self.request(NOTIFICATIONS_API+('/claim' if sent else '/release'),
                              {**body,'reservation':lease['reservation']})
@@ -173,8 +182,8 @@ def start_gio(GLib,Gio,opener,origin='http://127.0.0.1:47831',on_panel=None):
                 title,body=banner(event)
                 if gtk:
                     payload={'title':GLib.Variant('s',title),'body':GLib.Variant('s',body),
-                             'default-action':GLib.Variant('s','app.'+(PANEL_ACTION if event['kind']=='low_limit' else ACTION))}
-                    if event['kind']!='low_limit':payload['default-action-target']=GLib.Variant('s',event['links']['desktop'])
+                             'default-action':GLib.Variant('s','app.'+(PANEL_ACTION if panel_event(event) else ACTION))}
+                    if not panel_event(event):payload['default-action-target']=GLib.Variant('s',event['links']['desktop'])
                     reply=bus.call_sync('org.gtk.Notifications','/org/gtk/Notifications','org.gtk.Notifications','AddNotification',
                                   GLib.Variant('(ssa{sv})',(APP_ID,event['id'],payload)),None,Gio.DBusCallFlags.NONE,5000,None)
                     if reply is None:return False
@@ -182,7 +191,7 @@ def start_gio(GLib,Gio,opener,origin='http://127.0.0.1:47831',on_panel=None):
                     import html
                     reply=bus.call_sync('org.freedesktop.Notifications','/org/freedesktop/Notifications',
                         'org.freedesktop.Notifications','Notify',GLib.Variant('(susssasa{sv}i)',
-                        ('Nagi',0,'view-list-symbolic',html.escape(title),body,['default','Open Nagi' if event['kind']=='low_limit' else 'Open thread'],
+                        ('Nagi',0,'view-list-symbolic',html.escape(title),body,['default','Open Nagi' if panel_event(event) else 'Open thread'],
                          {'desktop-entry':GLib.Variant('s',APP_ID)},-1)),None,Gio.DBusCallFlags.NONE,5000,None)
                     fdo_clicks[reply.unpack()[0]]=clicked
                     if len(fdo_clicks)>256:fdo_clicks.pop(next(iter(fdo_clicks)))

@@ -37,12 +37,12 @@ def ensure_directory(path, home):
     owned_path(path, home)
 
 
-def write_private(path, body, home):
+def write_private(path, body, home, *, mode=0o600):
     path = owned_path(path, home)
     ensure_directory(path.parent, home)
     fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC | os.O_NOFOLLOW, 0o600)
     with os.fdopen(fd, 'wb') as stream:
-        os.fchmod(stream.fileno(), 0o600)
+        os.fchmod(stream.fileno(), mode)
         stream.write(body)
 
 
@@ -135,6 +135,7 @@ def install(platform, directory, port, executable, home):
     executable = str(Path(executable).resolve(strict=True))
     import subprocess
     subprocess.run([executable, '-c', 'import sys; sys.exit(sys.version_info < (3, 11))'], check=True, timeout=5)
+    validate_status_launcher(home)
     from owner_auth import owner_secret
     ensure_directory(directory, home)
     owner_secret(directory, create=True)
@@ -173,8 +174,32 @@ def install(platform, directory, port, executable, home):
         activation_command=[executable,'-B',str(ROOT/'linux/agent_notifications.py'),'--activate','--port',str(port)]
         activation=(ROOT/'linux/local.nagi.notifications.service.in').read_text().replace('@COMMAND@',shlex.join(activation_command))
         write_private(home/'.local/share/dbus-1/services/local.nagi.notifications.service',activation.encode(),home)
+    write_status_launcher(home, executable, port)
     write_private(locator_path(home=home), json.dumps({'version': 1, 'dataDir': str(directory)}).encode(), home)
     return target
+
+
+STATUS_MARKER = b'#!/bin/sh\n# Installed by Nagi\n'
+
+
+def validate_status_launcher(home):
+    path = owned_path(home/'.local/bin/nagi', home)
+    try:
+        with os.fdopen(os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK), 'rb') as existing:
+            from stat import S_ISREG
+            if not S_ISREG(os.fstat(existing.fileno()).st_mode) or existing.read(len(STATUS_MARKER)) != STATUS_MARKER:
+                raise ValueError('The nagi command is already in use')
+    except FileNotFoundError:
+        pass
+    return path
+
+
+def write_status_launcher(home, executable, port):
+    path = validate_status_launcher(home)
+    command = shlex.join([executable, '-E', '-B', str(ROOT/'nagi_cli.py')])
+    template = (f'NAGI_PORT=${{NAGI_PORT:-{port}}}\nexport NAGI_PORT\n'
+                f'exec {command} "$@"\n')
+    write_private(path, STATUS_MARKER + template.encode(), home, mode=0o700)
 
 
 def main():
