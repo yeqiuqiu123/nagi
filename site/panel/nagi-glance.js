@@ -28,7 +28,24 @@
   // GitHub checks, pull requests, ended results and machine load (web/glance-ci.js): the four
   // feeds as last read (null = the route answered 404, undefined = it didn't answer), the last
   // that did answer, and what NagiCI built from them for this render.
-  let feeds = {}; const feedsPrev = {}; let ci = null;
+  // Until the first read lands nothing is drawn for a feed: not read yet is not a failure.
+  let feeds = { ci: null, pulls: null, ended: null, machine: null }; const feedsPrev = {}; let ci = null;
+  // Which refresh is the newest: an older one that lands late is dropped, never drawn.
+  let refreshGen = 0;
+  // Whether each feed was last known to be absent (a reader without the route) or switched
+  // off, kept across opens so a failed first read stays silent only for a feed that was.
+  const FEEDS_KNOWN = 'nagi-feeds-known';
+  const OFF = Object.freeze({ status: 'not_set_up', attemptedAt: null, checkedAt: null, reason: 'disabled', data: null });
+  const feedOff = (value) => !!value && value.status === 'not_set_up' && value.reason === 'disabled';
+  try {
+    const known = JSON.parse(localStorage.getItem(FEEDS_KNOWN) || 'null') || {};
+    for (const key of ['ci', 'pulls', 'ended', 'machine']) { if (known[key] === 'absent') feedsPrev[key] = null; else if (known[key] === 'off') feedsPrev[key] = OFF; }
+  } catch {}
+  function rememberFeeds() {
+    const known = {};
+    for (const [key, value] of Object.entries(feedsPrev)) known[key] = value === null ? 'absent' : feedOff(value) ? 'off' : 'on';
+    try { localStorage.setItem(FEEDS_KNOWN, JSON.stringify(known)); } catch {}
+  }
   let sheet = null;
   let lastOpen = null; let lastDials = null;
   try { const v = Number(localStorage.getItem(LAST_OPEN)); if (Number.isFinite(v) && v > 0) lastOpen = v; } catch {}
@@ -179,9 +196,8 @@
   const PR_SHOWN = 4;
   function prsGroup(p) {
     const I = window.NagiIcons;
-    // When GitHub as a whole couldn't be read, the rail says so once; this line is for the
-    // case where only this feed failed.
-    if (p.failed && ci && ci.rail) return null;
+    // A queue that couldn't be read says so where it would have been: pull requests may be
+    // waiting on the owner, and silence would read as none.
     if (p.failed) return h('li', { class: 'prs-say' }, h('p', { class: 'say' }, I.glyph('pull-request'), h('span', { class: 'say-words', text: 'Pull requests: ' + p.failed.words })));
     if (!p.rows.length) return null;
     const shown = prsOpen ? p.rows : p.rows.slice(0, PR_SHOWN);
@@ -717,23 +733,49 @@
   const FEED_GRACE_MS = 400;
 
   async function refresh() {
+    // Refreshes can overlap (the poll, a reopen, a changed setting) and land in any order.
+    // Only the newest may write what the panel holds; a superseded one is dropped whole.
+    const gen = ++refreshGen;
+    const newest = () => gen === refreshGen;
     // The four CI and load feeds are read alongside the glance and never hold it up: past a
     // short grace the glance draws without them, and again when they land.
     let landed = false;
     const reads = Promise.all([ciReady, ...FEEDS.map(([key, path]) => readFeed(key, path).then((value) => [key, value]))]).then(([, ...pairs]) => {
+      if (!newest()) return;
       feeds = Object.fromEntries(pairs);
       pairs.forEach(([key, value]) => { if (value !== undefined) feedsPrev[key] = value; });
+      rememberFeeds();
       landed = true;
     });
     // One envelope carries every source's agents and limits (API v1).
-    let failure = null;
-    try { envelope = await getJson('/api/sources/v1/glance'); readerFailedAt = null; }
-    catch (error) { failure = error; readerFailedAt = Date.now(); } // a failed read dates what was shown
+    let failure = null; let read = null;
+    try { read = await getJson('/api/sources/v1/glance'); }
+    catch (error) { failure = error; }
+    if (!newest()) return;
+    if (failure) readerFailedAt = Date.now(); // a failed read dates what was shown
+    else { envelope = read; readerFailedAt = null; }
     if (firstRender && failure && failure.status === 401) return; // native recovery reopens the panel
     if (firstRender) await document.fonts.ready;
     await Promise.race([reads, new Promise((resolve) => setTimeout(resolve, FEED_GRACE_MS))]);
+    if (!newest()) return;
     render();
-    if (!landed) reads.then(() => { if (!firstRender) render(); });
+    if (!landed) reads.then(() => { if (newest() && landed && !firstRender) render(); });
+  }
+
+  // The GitHub preference changed in Settings → Sources. Whatever was read before no longer
+  // stands: reads still in flight are dropped, and what the panel held from GitHub (pull
+  // request titles among it) is cleared at once. Off draws nothing; on, or unknown, starts
+  // from no reading, so a failure shows as one.
+  function githubChanged(enabled) {
+    refreshGen++;
+    const checking = { status: 'unavailable', attemptedAt: new Date().toISOString(), checkedAt: null, reason: 'checking', data: null };
+    for (const key of ['ci', 'pulls', 'ended']) {
+      if (enabled === false) { feeds[key] = OFF; feedsPrev[key] = OFF; }
+      else { delete feedsPrev[key]; if (enabled === true) feeds[key] = checking; else delete feeds[key]; }
+    }
+    rememberFeeds();
+    if (!firstRender) render();
+    return refresh();
   }
 
   // ---- Setup and Sources (loaded on demand: most opens never need them) -------------------
@@ -750,7 +792,7 @@
     }
     return setupModule;
   }
-  const setupHost = { refresh: () => refresh(), native, opener: () => $('gear'), sources: () => envelope };
+  const setupHost = { refresh: () => refresh(), githubChanged, native, opener: () => $('gear'), sources: () => envelope };
   function openSetup(options) { loadSetup().then((S) => S.open(setupHost, options || {})).catch(() => {}); }
   function openSources(options) { loadSetup().then((S) => S.openSources(setupHost, options || {})).catch(() => {}); }
 

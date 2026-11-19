@@ -79,10 +79,14 @@
   // The one rule for a GitHub link, mirrored in nagi_links.github_link and
   // SourceLinks.githubLink: https, host exactly github.com, no credentials, port, query or
   // fragment, no percent signs, nothing below 33, at most 2048 characters, and a path of
-  // /owner/repo plus 0 to 6 more plain segments, none of them `.` or `..`.
+  // /owner/repo alone or followed by one of the routes the panel links to: pull/<n>,
+  // actions, actions/runs/<n> or deployments. GitHub's own first segments (sign-in, SSO,
+  // settings) are refused whatever follows.
   const OWNER = /^[A-Za-z0-9-]{1,39}$/;
   const REPO = /^[A-Za-z0-9._-]{1,100}$/;
-  const SEGMENT = /^[A-Za-z0-9._-]{1,200}$/;
+  const ROUTE = /^(?:pull\/[1-9][0-9]{0,18}|actions(?:\/runs\/[1-9][0-9]{0,18})?|deployments)$/;
+  const RESERVED = new Set(['orgs', 'organizations', 'enterprises', 'login', 'logout', 'session', 'sessions', 'settings',
+    'account', 'users', 'apps', 'marketplace', 'oauth', 'join', 'signup', 'sso', 'sponsors', 'codespaces']);
   function safeGithub(value) {
     if (typeof value !== 'string' || value.length > 2048) return null;
     // A branch with no pull request is linked to its repository's Actions page filtered by
@@ -94,21 +98,24 @@
     if (/[%?#\\@]/.test(value)) return null;
     const m = /^https:\/\/github\.com(\/.*)$/.exec(value);
     if (!m) return null;
-    const parts = m[1].split('/').slice(1);
-    if (parts.length < 2 || parts.length > 8) return null;
-    if (!OWNER.test(parts[0]) || !REPO.test(parts[1]) || !parts.slice(2).every((p) => SEGMENT.test(p))) return null;
-    if (parts.some((p) => p === '.' || p === '..')) return null;
-    return 'https://github.com/' + parts.join('/');
+    const [owner, repo, ...rest] = m[1].split('/').slice(1);
+    if (repo === undefined || !OWNER.test(owner) || !REPO.test(repo)) return null;
+    if (RESERVED.has(owner.toLowerCase()) || repo === '.' || repo === '..') return null;
+    if (rest.length && !ROUTE.test(rest.join('/'))) return null;
+    return 'https://github.com/' + [owner, repo, ...rest].join('/');
   }
 
   // ---- Feeds -------------------------------------------------------------------------
   const STATUSES = new Set(['ok', 'quiet', 'unavailable', 'last_known', 'not_set_up', 'unsupported']);
-  // An undefined feed (the reader didn't answer) shows its previous reading, dated; with
-  // none, nothing. A malformed outcome is a read that failed.
+  // An undefined feed (the reader didn't answer) shows its previous reading, dated. A feed
+  // last known to be absent (null) or off stays silent. With no earlier reading at all the
+  // failure is kept, with the time it was tried: a read that failed is never the same as a
+  // reader that has nothing to say. A malformed outcome is a read that failed.
   function resolve(feed, prev, now) {
     if (feed === null) return null;
     if (feed === undefined) {
-      if (!obj(prev)) return null;
+      if (prev === null) return null;
+      if (!obj(prev)) return { status: 'unavailable', attemptedAt: new Date(now).toISOString(), checkedAt: null, reason: 'reader_down', data: null };
       if ((prev.status === 'ok' || prev.status === 'quiet' || prev.status === 'last_known') && prev.data != null) {
         return { status: 'last_known', attemptedAt: new Date(now).toISOString(), checkedAt: prev.checkedAt, reason: 'reader_down', data: prev.data };
       }

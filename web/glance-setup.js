@@ -487,8 +487,9 @@
     const got = await call('/ci/settings', undefined);
     if (!state) return;
     if (!got.ok && got.status === 404) { state.gh = null; rerender(); return; }
-    state.gh = got.ok ? { enabled: got.data.enabled === true, outcome: null, triedAt: null }
-      : { enabled: false, failed: true, triedAt: Date.now() };
+    // A read that failed leaves the preference unknown: never drawn as off.
+    state.gh = got.ok && typeof got.data.enabled === 'boolean' ? { enabled: got.data.enabled, outcome: null, triedAt: null }
+      : { enabled: false, unknown: true, triedAt: Date.now() };
     rerender();
     if (state.gh.enabled) watchGitHub();
   }
@@ -509,7 +510,7 @@
   }
 
   function gitHubWords(gh) {
-    if (gh.failed) return "Couldn't check · tried " + M.hm(gh.triedAt);
+    if (gh.unknown) return "Couldn't check whether this is on · tried " + M.hm(gh.triedAt);
     if (!gh.enabled) return null;
     const o = gh.outcome;
     if (!o) return gh.triedAt ? "Couldn't check · tried " + M.hm(gh.triedAt) : 'Checking…';
@@ -535,20 +536,46 @@
   async function flipGitHub(enabled) {
     const gh = state.gh;
     if (!gh || gh.busy) return;
-    gh.busy = true; gh.enabled = enabled; state.ghError = null;
+    const before = gh.unknown ? null : gh.enabled;
+    gh.busy = true; gh.enabled = enabled; gh.unknown = false; state.ghError = null;
     if (!enabled) gh.outcome = null;
     renderKeeping('github-ci');
-    const got = await call('/ci/settings', { enabled });
+    let got = await call('/ci/settings', { enabled });
     if (!state || state.gh !== gh) return;
+    let settled = got.ok && typeof got.data.enabled === 'boolean' ? got.data.enabled : null;
+    // The reader answered and refused (a 4xx): nothing was written, and the sheet may say so.
+    const refused = !got.ok && got.status >= 400 && got.status < 500;
+    if (settled === null && !refused) {
+      // No answer, or one that can't be read: the write may or may not have landed. Ask.
+      got = await call('/ci/settings', undefined);
+      if (!state || state.gh !== gh) return;
+      settled = got.ok && typeof got.data.enabled === 'boolean' ? got.data.enabled : null;
+      if (settled !== null && settled !== enabled) state.ghError = 'Couldn\u2019t change that. GitHub is still ' + (settled ? 'on.' : 'off.');
+    }
     gh.busy = false;
-    if (got.ok && typeof got.data.enabled === 'boolean') {
-      gh.enabled = got.data.enabled; gh.failed = false; gh.outcome = null; gh.triedAt = null;
-    } else {
-      gh.enabled = !enabled; // the answer is the truth: nothing changed
+    if (settled !== null) {
+      gh.enabled = settled; gh.outcome = null; gh.triedAt = null;
+    } else if (refused && before !== null) {
+      gh.enabled = before;
       state.ghError = 'Couldn\u2019t change that. Nothing was changed.';
+    } else {
+      // Still no answer: the preference is unknown, and is shown as unknown.
+      gh.enabled = false; gh.unknown = true; gh.triedAt = Date.now();
+      state.ghError = 'Couldn\u2019t reach Nagi\u2019s reader to change that.';
     }
     renderKeeping('github-ci');
-    if (got.ok) { host.refresh(); if (gh.enabled) watchGitHub(); }
+    // The glance drops what it held from GitHub the moment the preference is off or unknown.
+    if (host.githubChanged) host.githubChanged(gh.unknown ? null : gh.enabled); else host.refresh();
+    if (!gh.unknown && gh.enabled) watchGitHub();
+  }
+
+  // Unknown is its own state: the knob rests in the middle, and flipping it asks the reader again.
+  function gitHubSwitch(gh, words) {
+    const input = h('input', { type: 'checkbox', role: 'switch', id: 'github-ci', checked: gh.enabled && !gh.unknown,
+      'aria-labelledby': 'github-name', 'aria-describedby': 'github-what' + (words ? ' github-status' : ''),
+      onchange: (event) => flipGitHub(event.target.checked) });
+    input.indeterminate = !!gh.unknown;
+    return input;
   }
 
   function gitHubRow() {
@@ -556,9 +583,7 @@
     const words = gitHubWords(gh);
     return h('ul', { class: 'choices github', 'aria-label': 'GitHub' },
       h('li', { class: 'choice github-row' },
-        h('input', { type: 'checkbox', role: 'switch', id: 'github-ci', checked: gh.enabled, disabled: !!gh.failed,
-          'aria-labelledby': 'github-name', 'aria-describedby': 'github-what' + (words ? ' github-status' : ''),
-          onchange: (event) => flipGitHub(event.target.checked) }),
+        gitHubSwitch(gh, words),
         h('span', { class: 'app-tile', 'aria-hidden': 'true', text: 'GH' }),
         h('div', { class: 'choice-text' },
           h('span', { class: 'choice-name', id: 'github-name', text: 'GitHub' }),

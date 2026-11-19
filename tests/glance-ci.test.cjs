@@ -63,10 +63,25 @@ function honest(result) {
   }
 }
 
-test('no routes at all draws nothing; a reader that never answered draws nothing either', () => {
-  assert.deepEqual(build({ ci: null, pulls: null, ended: null, machine: null }),
-    { available: false, byAgent: {}, header: null, pulls: null, results: null, load: null, rail: null });
-  assert.equal(build({}).available, false);
+test('no routes at all draws nothing; a first read that failed is kept as a failure, never as nothing', () => {
+  const nothing = { available: false, byAgent: {}, header: null, pulls: null, results: null, load: null, rail: null };
+  assert.deepEqual(build({ ci: null, pulls: null, ended: null, machine: null }), nothing);
+  // The reader didn't answer and there is no earlier reading: pull requests may be waiting,
+  // so every feed says it couldn't check, with the time it tried.
+  const failed = build({});
+  assert.equal(failed.available, true);
+  assert.equal(failed.header.ring.unknown, true);
+  assert.equal(failed.pulls.count, null);
+  assert.equal(failed.pulls.flag, null);
+  assert.match(failed.pulls.failed.words, /^couldn't check · tried \d\d:\d\d$/);
+  assert.match(failed.results.failed.words, /^couldn't check · tried \d\d:\d\d$/);
+  assert.match(failed.load.failed.words, /^couldn't check · tried \d\d:\d\d$/);
+  assert.equal(failed.rail.state, 'down');
+  honest(failed);
+  // The same failure after the feeds were last known absent, or switched off, stays silent.
+  const off = { status: 'not_set_up', attemptedAt: null, checkedAt: null, reason: 'disabled', data: null };
+  assert.deepEqual(C.build({}, { ...ctxOf(false), prev: { ci: null, pulls: null, ended: null, machine: null } }), nothing);
+  assert.deepEqual(C.build({}, { ...ctxOf(false), prev: { ci: off, pulls: off, ended: off, machine: null } }), { ...nothing, available: true });
   assert.equal(build({ ci: null, pulls: null, ended: null, machine: ok({ cpuLoadPercent: 10, memoryPressurePercent: 20, gpu: null }) }).available, true);
 });
 
@@ -377,9 +392,12 @@ test('omitted anywhere makes the rail say the list is partial', () => {
 });
 
 test('only plain GitHub links pass; anything else is dropped to null', () => {
-  const good = ['https://github.com/o/r', 'https://github.com/o/r/pull/12', 'https://github.com/o/r/pull/12/checks', 'https://github.com/o/r/actions/runs/123',
-    'https://github.com/o/r/commit/0123456789abcdef0123456789abcdef01234567/checks', 'https://github.com/o/r/deployments', 'https://github.com/o-1/r.e_p-o/a/b/c/d/e/f'];
+  const good = ['https://github.com/o/r', 'https://github.com/o/r/pull/12', 'https://github.com/o/r/actions', 'https://github.com/o/r/actions/runs/123',
+    'https://github.com/o/r/deployments', 'https://github.com/o-1/r.e_p-o/pull/128'];
   for (const url of good) assert.equal(C.safeGithub(url), url, url);
+  // Routes the panel never builds, and GitHub's own pages (sign-in, SSO, settings).
+  const wide = ['https://github.com/o/r/pull/12/checks', 'https://github.com/o/r/pull/12/files', 'https://github.com/o/r/pull/0', 'https://github.com/o/r/pull/abc', 'https://github.com/o/r/pull/12345678901234567890', 'https://github.com/o/r/commit/0123456789abcdef0123456789abcdef01234567/checks', 'https://github.com/o/r/a/b/c/d/e/f', 'https://github.com/o/r/actions/runs/12/job/3', 'https://github.com/o/r/actions/workflows', 'https://github.com/o/r/deployments/production', 'https://github.com/o/r/settings', 'https://github.com/o/r/issues/3', 'https://github.com/o/r/tree/main', 'https://github.com/orgs/acme/sso', 'https://github.com/orgs/acme', 'https://github.com/ORGS/acme', 'https://github.com/login/oauth', 'https://github.com/settings/actions', 'https://github.com/sessions/two-factor', 'https://github.com/enterprises/acme/sso'];
+  for (const url of wide) assert.equal(C.safeGithub(url), null, url);
   const bad = ['http://github.com/o/r', 'https://github.com.evil.example/o/r', 'https://evil.example/github.com/o/r', 'https://user@github.com/o/r',
     'https://user:pw@github.com/o/r', 'https://github.com:443/o/r', 'https://github.com/o/r?tab=checks', 'https://github.com/o/r/pull/1?', 'https://github.com/o/r#top',
     'https://github.com/o/../r', 'https://github.com/o/r/..', 'https://github.com/o/r/./x', 'https://github.com/o/r%2Fpull', 'https://github.com/o/r/a/b/c/d/e/f/g',

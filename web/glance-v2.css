@@ -382,6 +382,8 @@ button.src:hover, button.src.is-open { background: var(--hover); }
 .choice input::after { content: ""; position: absolute; left: 2px; top: 2px; width: 16px; height: 16px; border-radius: 50%; background: var(--control); }
 .choice input:checked { background: var(--accent); }
 .choice input:checked::after { left: 14px; }
+/* A preference the reader couldn't confirm: the knob rests in the middle, neither on nor off. */
+.choice input:indeterminate::after { left: 8px; }
 .choice input:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; border-radius: 10px; }
 .app-tile { display: grid; place-items: center; width: 28px; height: 28px; border-radius: 7px; font-size: 13px; font-weight: 700; letter-spacing: .01em;
   color: var(--c, var(--secondary)); background: color-mix(in srgb, var(--c, var(--secondary)) 16%, var(--control)); }
@@ -498,6 +500,8 @@ a.mk:hover { background: var(--hover); }
 /* In the header: the checks ring, a deployment in flight, the load ring. */
 .gauges { flex: none; display: flex; align-items: center; gap: 2px; }
 .gauges:empty { display: none; }
+/* The instruments and the gear are one cluster: the header's 10 px gap between them closes to 2. */
+.gauges:not(:empty) { margin-right: -8px; }
 .flags:empty + .gauges:not(:empty), .flags:empty + .gauges:empty + .gear { margin-left: auto; }
 .gauge { flex: none; display: inline-flex; align-items: center; justify-content: center; gap: 2px; min-width: 24px; height: 30px; box-sizing: border-box; margin: 0; padding: 0 2px; border: 0; border-radius: 8px; background: transparent; }
 .gauge:hover, .gauge.is-open { background: var(--hover); }
