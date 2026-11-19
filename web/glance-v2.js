@@ -433,7 +433,16 @@
     return response.json();
   }
 
+  // The saved theme repaints on every render, but never over an Appearance preview: while that
+  // sheet is open, the 20-second poll must not undo what the owner is trying.
+  function applyTheme() {
+    const T = window.NagiTheme;
+    if (!T || (window.NagiAppearance && window.NagiAppearance.isOpen())) return;
+    T.apply((envelope && envelope.settings && envelope.settings.theme) || T.current());
+  }
+
   function render() {
+    applyTheme();
     const opened = Date.now();
     // An open is the first render, or a native reopen of the already-loaded page (Mac).
     const isOpen = firstRender || opening;
@@ -490,6 +499,29 @@
   function openSetup(options) { loadSetup().then((S) => S.open(setupHost, options || {})).catch(() => {}); }
   function openSources(options) { loadSetup().then((S) => S.openSources(setupHost, options || {})).catch(() => {}); }
 
+  // ---- Appearance (loaded on demand, the same way) ----------------------------------------
+  let appearanceModule = null;
+  function loadAppearance() {
+    if (!appearanceModule) {
+      appearanceModule = new Promise((resolve, reject) => {
+        const script = document.createElement('script');
+        script.src = '/nagi-appearance.js';
+        script.onload = () => (window.NagiAppearance ? resolve(window.NagiAppearance) : reject(new Error('appearance')));
+        script.onerror = () => { appearanceModule = null; reject(new Error('appearance')); };
+        document.head.append(script);
+      });
+    }
+    return appearanceModule;
+  }
+  const appearanceHost = {
+    native, opener: () => $('gear'),
+    settings: () => (envelope && envelope.settings) || null,
+    // The reader's answer after a save is the truth the next render paints from.
+    saved: (settings) => { if (envelope) envelope.settings = { ...settings }; },
+    refresh: () => refresh(),
+  };
+  function openAppearance(options) { if (!window.NagiTheme) return; loadAppearance().then((A) => A.open(appearanceHost, options || {})).catch(() => {}); }
+
   // ---- Settings sheet -----------------------------------------------------------
   const FIELDS = [
     { key: 'stuckMinutes', input: 'stuck-minutes', note: 'stuck-clamped', min: 5, max: 120 },
@@ -511,6 +543,17 @@
     if (r.clamped) note.textContent = 'Set to ' + r.value + ', the nearest allowed value.';
     syncSave();
     return r.value;
+  }
+  // The Appearance row says what is chosen: `Violet · System`, and custom colours only when set.
+  const APPEARANCE_WORDS = { system: 'System', light: 'Light', dark: 'Dark' };
+  function showAppearance(theme) {
+    const T = window.NagiTheme;
+    const field = $('change-appearance').closest('.field');
+    field.hidden = !T;
+    if (!T) return;
+    const t = T.normalize(theme || T.current());
+    $('appearance-value').textContent = ((T.THEMES[t.name] || {}).label || t.name) + ' · ' + (APPEARANCE_WORDS[t.appearance] || 'System')
+      + (Object.keys(t.colors || {}).length ? ' · custom colours' : '');
   }
   function syncSave() {
     $('save').disabled = !sheet || FIELDS.every((f) => fieldValue(f) === sheet.loaded[f.key]);
@@ -538,6 +581,7 @@
     sheet = { loaded: { ...((envelope && envelope.settings) || DEFAULTS) }, defaults: DEFAULTS, opener: document.activeElement };
     $('sheet-error').hidden = true;
     fill(sheet.loaded);
+    showAppearance(sheet.loaded.theme);
     sheetLayer.hidden = false;
     void sheetLayer.offsetHeight; // start the transition from the closed state
     sheetLayer.dataset.open = 'true';
@@ -548,6 +592,7 @@
       if (!sheet) return;
       sheet.loaded = { ...value.settings }; sheet.defaults = { ...value.defaults };
       fill(sheet.loaded);
+      showAppearance(sheet.loaded.theme);
       if ((value.warnings || []).includes('settings_invalid')) showError("Settings were reset to the defaults because the saved file couldn't be read.");
     } catch {}
   }
@@ -587,6 +632,8 @@
     $('restore').addEventListener('click', () => { if (sheet) fill(sheet.defaults); });
     // Settings → Sources: the settings sheet steps aside for the Sources sheet.
     $('manage-sources').addEventListener('click', (event) => { closeSettings({ instant: true }); openSources({ instant: event.detail === 0 }); });
+    // Settings → Appearance: the same hand-over.
+    $('change-appearance').addEventListener('click', (event) => { closeSettings({ instant: true }); openAppearance({ instant: event.detail === 0 }); });
     $('sheet').addEventListener('submit', (event) => { event.preventDefault(); saveSettings(); });
     sheetLayer.querySelector('.scrim').addEventListener('click', () => closeSettings({ instant: false }));
     FIELDS.forEach((f) => {
@@ -633,7 +680,7 @@
   // Mac keeps the page loaded between opens: reopen() refreshes in place and treats the
   // next render as an open (what's new since the last look), with no reload or blank frame.
   function reopen() { if (!firstRender) opening = true; return refresh(); }
-  window.NagiGlance = Object.freeze({ openSettings, refresh, reopen, openSetup, openSources });
+  window.NagiGlance = Object.freeze({ openSettings, refresh, reopen, openSetup, openSources, openAppearance });
   refresh();
   setInterval(refresh, POLL_MS);
 })();

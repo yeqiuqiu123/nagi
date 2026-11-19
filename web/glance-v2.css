@@ -4,7 +4,9 @@
 @font-face { font-family: "Nagi Mark"; src: url("/fonts/nagi-glyph-serif.woff2") format("woff2"); font-display: block; }
 
 :root {
-  /* Night. Every text and stroke pair is measured against --bg, --hover, --wash and --sheet. */
+  /* Night. Every text and stroke pair is measured against --bg, --hover, --wash and --sheet.
+     These two blocks are Violet, the fallback before glance-theme.js paints the chosen theme
+     on <html>; they must equal NagiTheme.THEMES.violet (tests/glance-theme.test.cjs). */
   --bg: #18131d; --sheet: #241d2b; --scrim: #0d0a10;
   --title: #f5f1f8; --title-context: #e2dbe9; --secondary: #cdc4d6; --tertiary: #a397b0;
   --stroke: #9486a3; --hair: #3a3142; --track: #463c50;
@@ -15,7 +17,11 @@
   --hx-t3: #f58ac0; --hx-codex: #13c197; --hx-claude: #e2977f;
   --focus: #cdc4d6; --hover: #211a27;
   --control: #2c2433; --control-border: #8b7f99; --control-text: #f5f1f8;
-  --default-btn: #f5f1f8; --default-btn-text: #18131d;
+  /* Checks and deployments only: marks >= 3:1, words >= 7:1 on --bg and --hover. */
+  --green: #3fc98a; --green-text: #6fdcaa; --red: #ff4d42; --red-text: #ff958c; --blue: #5b9dff; --blue-text: #8dbbff;
+  /* Controls, never content: the switch that is on, the default button, selection. */
+  --accent: #b59cf7; --accent-ink: #18131d;
+  --default-btn: var(--accent); --default-btn-text: var(--accent-ink);
   color-scheme: dark;
 }
 @media (prefers-color-scheme: light) {
@@ -29,7 +35,9 @@
     --hx-t3: #8f1245; --hx-codex: #085240; --hx-claude: #7b331c;
     --focus: #403849; --hover: #e8e5ee;
     --control: #ffffff; --control-border: #847a97; --control-text: #17121c;
-    --default-btn: #17121c; --default-btn-text: #fbfafd;
+    --green: #16804f; --green-text: #0b5231; --red: #d92d20; --red-text: #8e1a13; --blue: #2f6fe0; --blue-text: #123f96;
+    --accent: #6a45d1; --accent-ink: #ffffff;
+    --default-btn: var(--accent); --default-btn-text: var(--accent-ink);
     color-scheme: light;
   }
 }
@@ -205,26 +213,25 @@ button.say:focus-visible { outline-offset: -2px; }
 .pi-fuchsia { color: oklch(74% 0.238 322.16); }
 .pi-pink { color: oklch(71.8% 0.202 349.761); }
 .pi-rose { color: oklch(71.2% 0.194 13.428); }
-@media (prefers-color-scheme: light) {
-  .pi-gray { color: oklch(44.6% 0.03 256.802); }
-  .pi-red { color: oklch(57.7% 0.245 27.325); }
-  .pi-orange { color: oklch(64.6% 0.222 41.116); }
-  .pi-amber { color: oklch(66.6% 0.179 58.318); }
-  .pi-yellow { color: oklch(68.1% 0.162 75.834); }
-  .pi-lime { color: oklch(64.8% 0.2 131.684); }
-  .pi-green { color: oklch(62.7% 0.194 149.214); }
-  .pi-emerald { color: oklch(59.6% 0.145 163.225); }
-  .pi-teal { color: oklch(60% 0.118 184.704); }
-  .pi-cyan { color: oklch(60.9% 0.126 221.723); }
-  .pi-sky { color: oklch(58.8% 0.158 241.966); }
-  .pi-blue { color: oklch(54.6% 0.245 262.881); }
-  .pi-indigo { color: oklch(51.1% 0.262 276.966); }
-  .pi-violet { color: oklch(54.1% 0.281 293.009); }
-  .pi-purple { color: oklch(55.8% 0.288 302.321); }
-  .pi-fuchsia { color: oklch(59.1% 0.293 322.896); }
-  .pi-pink { color: oklch(59.2% 0.249 0.584); }
-  .pi-rose { color: oklch(58.6% 0.253 17.585); }
-}
+/* By day, as the theme script resolves it (data-scheme on <html>), not as the system says. */
+:root[data-scheme="light"] .pi-gray { color: oklch(44.6% 0.03 256.802); }
+:root[data-scheme="light"] .pi-red { color: oklch(57.7% 0.245 27.325); }
+:root[data-scheme="light"] .pi-orange { color: oklch(64.6% 0.222 41.116); }
+:root[data-scheme="light"] .pi-amber { color: oklch(66.6% 0.179 58.318); }
+:root[data-scheme="light"] .pi-yellow { color: oklch(68.1% 0.162 75.834); }
+:root[data-scheme="light"] .pi-lime { color: oklch(64.8% 0.2 131.684); }
+:root[data-scheme="light"] .pi-green { color: oklch(62.7% 0.194 149.214); }
+:root[data-scheme="light"] .pi-emerald { color: oklch(59.6% 0.145 163.225); }
+:root[data-scheme="light"] .pi-teal { color: oklch(60% 0.118 184.704); }
+:root[data-scheme="light"] .pi-cyan { color: oklch(60.9% 0.126 221.723); }
+:root[data-scheme="light"] .pi-sky { color: oklch(58.8% 0.158 241.966); }
+:root[data-scheme="light"] .pi-blue { color: oklch(54.6% 0.245 262.881); }
+:root[data-scheme="light"] .pi-indigo { color: oklch(51.1% 0.262 276.966); }
+:root[data-scheme="light"] .pi-violet { color: oklch(54.1% 0.281 293.009); }
+:root[data-scheme="light"] .pi-purple { color: oklch(55.8% 0.288 302.321); }
+:root[data-scheme="light"] .pi-fuchsia { color: oklch(59.1% 0.293 322.896); }
+:root[data-scheme="light"] .pi-pink { color: oklch(59.2% 0.249 0.584); }
+:root[data-scheme="light"] .pi-rose { color: oklch(58.6% 0.253 17.585); }
 
 
 .proj-head { position: relative; display: flex; align-items: center; gap: 8px; padding: 0 16px 0 var(--x0); min-height: 22px; }
@@ -328,7 +335,7 @@ button.src:hover, button.src.is-open { background: var(--hover); }
   -webkit-user-select: text; user-select: text;
 }
 .number-field input:focus-visible { outline: 2px solid var(--focus); outline-offset: 1px; border-radius: 6px; }
-.number-field input::selection { background: var(--hair); color: var(--title); }
+.number-field input::selection { background: color-mix(in srgb, var(--accent) 32%, var(--sheet)); color: var(--title); }
 .number-field input:disabled { color: var(--secondary); border-color: var(--hair); }
 .unit { min-width: 50px; font-size: 13px; font-weight: 420; color: var(--secondary); }
 .help { grid-column: 1 / -1; margin: 5px 0 0; font-size: 13px; line-height: 1.4; font-weight: 420; color: var(--secondary); }
@@ -344,7 +351,7 @@ button.src:hover, button.src.is-open { background: var(--hover); }
 .check-label { display: inline-flex; align-items: center; gap: 10px; }
 .check-label input { -webkit-appearance: none; appearance: none; flex: none; position: relative; margin: 0; width: 32px; height: 20px; border-radius: 10px; background: var(--control-border); }
 .check-label input::after { content: ""; position: absolute; left: 2px; top: 2px; width: 16px; height: 16px; border-radius: 50%; background: var(--sheet); }
-.check-label input:checked { background: var(--title); }
+.check-label input:checked { background: var(--accent); }
 .check-label input:checked::after { left: 14px; }
 .check-label input:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; border-radius: 10px; }
 
@@ -353,7 +360,7 @@ button.src:hover, button.src.is-open { background: var(--hover); }
 .setup-step { display: flex; align-items: center; gap: 10px; margin: 0 0 8px; min-height: 16px; font-size: 13px; font-weight: 420; color: var(--secondary); }
 .pips { display: inline-flex; gap: 4px; }
 .pips i { display: block; width: 18px; height: 4px; border-radius: 2px; background: var(--hair); }
-.pips i.on { background: var(--title); }
+.pips i.on { background: var(--accent); }
 .setup-sheet h2:focus, .setup-sheet h2:focus-visible { outline: none; } /* a reading point for screen readers, never a tab stop */
 .choices, .source-rows { margin: 0 0 10px; padding: 0 12px; border-radius: 10px; background: var(--control); }
 .choice, .source-row, .target-row, .summary-row { display: grid; column-gap: 10px; padding: 10px 0; }
@@ -371,7 +378,7 @@ button.src:hover, button.src.is-open { background: var(--hover); }
 /* A choice is a switch at the row's end, as in System Settings. */
 .choice input { -webkit-appearance: none; appearance: none; flex: none; position: relative; margin: 0; width: 32px; height: 20px; border-radius: 10px; background: var(--control-border); }
 .choice input::after { content: ""; position: absolute; left: 2px; top: 2px; width: 16px; height: 16px; border-radius: 50%; background: var(--control); }
-.choice input:checked { background: var(--title); }
+.choice input:checked { background: var(--accent); }
 .choice input:checked::after { left: 14px; }
 .choice input:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; border-radius: 10px; }
 .app-tile { display: grid; place-items: center; width: 28px; height: 28px; border-radius: 7px; font-size: 13px; font-weight: 700; letter-spacing: .01em;
@@ -401,3 +408,51 @@ button.src:hover, button.src.is-open { background: var(--hover); }
 .target-actions { display: flex; gap: 8px; margin-top: 8px; }
 .choice-what.target-error { color: var(--title); font-weight: 560; }
 .setup-sheet > .help { margin: 0 12px 10px; }
+
+/* ---- Appearance sheet ---- */
+/* Settings → Appearance: the row's value sits where Sources keeps its help line. */
+.field-value { grid-column: 1 / -1; margin: 5px 0 0; font-size: 13px; line-height: 1.4; font-weight: 420; color: var(--secondary); }
+/* Three theme pictures, as System Settings → Appearance draws them: the chosen one wears a
+   2 px accent ring 2 px off the picture; the keyboard's ring sits outside the whole choice. */
+.ap-themes { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; margin: 4px 0 14px; }
+.ap-theme { display: flex; flex-direction: column; align-items: stretch; gap: 6px; min-width: 0; margin: 0; padding: 0; border: 0; border-radius: 12px; background: none; text-align: center; }
+.ap-theme:focus-visible { outline-offset: 6px; border-radius: 12px; }
+.ap-pic { display: block; height: 68px; box-sizing: border-box; overflow: hidden; border: 1px solid var(--hair); border-radius: 9px; }
+.ap-pic svg { display: block; width: 100%; height: 100%; }
+.ap-theme[aria-checked="true"] .ap-pic { outline: 2px solid var(--accent, var(--focus)); outline-offset: 2px; }
+.ap-theme-name { font-size: 13px; line-height: 16px; font-weight: 560; color: var(--secondary); }
+.ap-theme[aria-checked="true"] .ap-theme-name { color: var(--title); }
+/* System · Light · Dark: a segmented control. Each segment is a 28 px target; the chosen one
+   is a raised lozenge drawn 2 px inside it, lighter than its trough by night and by day. */
+.ap-seg { display: flex; height: 28px; margin: 0 0 12px; border-radius: 8px; background: var(--hover); }
+.ap-seg-btn { flex: 1 1 0; min-width: 0; height: 28px; box-sizing: border-box; margin: 0; padding: 0 6px; border: 2px solid transparent; border-radius: 8px;
+  background: none; background-clip: padding-box; font-size: 13px; font-weight: 560; color: var(--secondary); }
+.ap-seg-btn[aria-checked="true"] { background-color: var(--control); color: var(--title); }
+.ap-seg-btn:focus-visible { outline-offset: 0; border-radius: 8px; }
+/* Colours: five disclosure rows, one open at a time. */
+.ap-colour + .ap-colour { border-top: 1px solid var(--hair); }
+.ap-colour-head { display: flex; align-items: center; gap: 8px; width: 100%; min-height: 40px; margin: 0; padding: 0; border: 0; background: none; text-align: left; }
+.ap-colour-name { flex: 1 1 auto; min-width: 0; font-size: 15px; font-weight: 520; color: var(--title); }
+.ap-dot { flex: none; width: 16px; height: 16px; border-radius: 50%; background: var(--c, var(--secondary)); }
+.ap-colour-head .chev { flex: none; }
+.ap-colour-head[aria-expanded="true"] .chev { transform: rotate(90deg); }
+.ap-colour-body { padding: 0 0 10px; }
+.ap-colour-body[hidden] { display: none; }
+.ap-pick { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+/* Preset dots: 22 px drawn inside a 28 px target, so they sit 6 px apart. */
+.ap-presets { display: flex; margin-left: -3px; }
+.ap-preset { flex: none; display: grid; place-items: center; width: 28px; height: 28px; margin: 0; padding: 0; border: 0; border-radius: 50%; background: none; }
+.ap-preset:focus-visible { outline-offset: 0; border-radius: 50%; }
+.ap-swatch { display: block; width: 22px; height: 22px; border-radius: 50%; background: var(--c, var(--secondary)); }
+.ap-preset[aria-checked="true"] .ap-swatch { outline: 2px solid var(--accent, var(--focus)); outline-offset: 1px; }
+.ap-hex {
+  flex: none; width: 84px; height: 28px; box-sizing: border-box; padding: 0 8px; border: 1px solid var(--control-border); border-radius: 6px;
+  background: var(--sheet); color: var(--control-text); font: inherit; font-size: 15px; font-variant-numeric: tabular-nums;
+  -webkit-user-select: text; user-select: text;
+}
+.ap-hex::placeholder { color: var(--tertiary); opacity: 1; }
+.ap-hex:focus-visible { outline: 2px solid var(--focus); outline-offset: 1px; border-radius: 6px; }
+.ap-hex::selection { background: var(--hair); color: var(--title); }
+.ap-note { margin: 6px 0 0; font-size: 13px; line-height: 1.4; font-weight: 420; color: var(--secondary); }
+.ap-note.strong { font-weight: 560; color: var(--title); }
+.ap-note[hidden] { display: none; }

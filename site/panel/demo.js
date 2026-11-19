@@ -35,7 +35,10 @@
   try { Object.defineProperty(window, 'localStorage', { configurable: true, get: () => store }); } catch {}
 
   // Settings saved in the demo's sheet drive the fixture, as they drive the reader.
-  let settings = { stuckMinutes: 15, endedExpiryHours: 24 };
+  // A visitor can try the themes; the one they save lasts until they leave the page.
+  const DEFAULTS = { stuckMinutes: 15, endedExpiryHours: 24, limitAlertPercent: 10, theme: { name: 'violet', appearance: 'system', colors: {} } };
+  const clone = (value) => JSON.parse(JSON.stringify(value));
+  let settings = clone(DEFAULTS);
 
   // ---- Fictional fixture -----------------------------------------------------------
   const NO = { question: false, approval: false, blocking: false };
@@ -134,7 +137,7 @@
     const data = { environmentId: 'demo', omittedRows: 0, warnings: [], projects, ended, counts: counts(projects, ended) };
     return {
       version: 1, dtoVersion: 2, extensions: ['nullable_links'], platform: 'linux', checkedAt: iso(V()),
-      settings: { stuckMinutes: 15, endedExpiryHours: 24 }, warnings: [],
+      settings: clone(settings), warnings: [],
       sources: [{
         source: { id: 'demo', harness: 't3', label: 'This computer', placement: 'local' },
         capabilities: { agents: true, lineage: true, limits: true, stuckDetection: true, asksYou: true, deepLinks: true },
@@ -157,14 +160,14 @@
   window.fetch = (input, init) => {
     const path = new URL(typeof input === 'string' ? input : input.url, location.href).pathname;
     if (path.endsWith('/api/sources/v1/glance')) {
-      const answer = () => { const e = envelope(); e.settings = { ...settings }; return json(e); };
+      const answer = () => { const e = envelope(); e.settings = clone(settings); return json(e); };
       // Every read waits while the first is held (the panel also polls every 20 s).
       if (holdFirst) return firstOpen.then(answer);
       return answer();
     }
     if (path.endsWith('/api/settings')) {
       if (init && init.method === 'POST') { try { settings = { ...settings, ...JSON.parse(init.body) }; } catch {} }
-      return json({ settings: { ...settings }, defaults: { stuckMinutes: 15, endedExpiryHours: 24 }, warnings: [] });
+      return json({ version: 2, settings: clone(settings), defaults: clone(DEFAULTS), warnings: [] });
     }
     return json({ error: 'not_in_demo' }, 404);
   };

@@ -5,6 +5,10 @@
 //
 // ?scene= calm | asks | stuck | both | low | limitsfail | datedlimits | unreachable | never |
 //         notsetup | checking | quiet | nothing | first | overflow | multi | friend | sixdials
+// ?ci=   off (default) | none | mixed | green | down | dated | signedout | rowdown | partial
+// ?load= calm | gpu | hot | partial | down (default: the machine route answers 404)
+// ?theme= violet (default) | graphite | tide   ?appearance= system (default) | light | dark
+// ?colors=accent:ff8800,claude:9a7bf0 (roles accent, claude, codex, gemini, t3), saved settings' theme.
 // ?mac=1 shows the Mac density (pageZoom 0.85).   ?since=N pretends the last open was N minutes ago
 // with every limit 12 points higher, so the open motion has something to show.
 (() => {
@@ -20,9 +24,10 @@
   const sol = { provider: 'codex', model: 'gpt-6.1-sol' };
   const gemini = { provider: 'antigravity', model: 'gemini-3.8-flash' };
 
-  let seq = 0;
+  // Stable ids (title and start), so the CI fixtures below can join the same agents on every read.
+  const idOf = (title, start) => title.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 48) + '-' + start;
   function agent(title, who, o) {
-    const id = o.id || 'a' + (++seq);
+    const id = o.id || idOf(title, o.start);
     const running = o.state === 'running';
     const last = o.last != null ? o.last : 0.1;
     return { id, projectId: o.project || 'p', parentId: o.parent || null, title, state: o.state, provider: who.provider, model: who.model, runId: 'run-' + id,
@@ -143,14 +148,99 @@
     }
   }
 
-  let settings = { stuckMinutes: 15, endedExpiryHours: 24, limitAlertPercent: 10 };
+  // The saved theme comes from the query, as the reader's settings file would give it.
+  const DEFAULT_THEME = { name: 'violet', appearance: 'system', colors: {} };
+  const theme = { name: params.get('theme') || 'violet', appearance: params.get('appearance') || 'system',
+    colors: Object.fromEntries((params.get('colors') || '').split(',').filter(Boolean).map((pair) => pair.split(':')).map(([role, hex]) => [role, '#' + String(hex).replace(/^#/, '').toLowerCase()])) };
+  let settings = { stuckMinutes: 15, endedExpiryHours: 24, limitAlertPercent: 10, theme };
+  const clone = (value) => JSON.parse(JSON.stringify(value));
+  if (window.NagiTheme) window.NagiTheme.apply(theme);
   let connected = null; // sources added through the setup sheet in this page view
-  const envelope = () => ({ version: 1, dtoVersion: 2, extensions: ['nullable_links'], platform: 'linux', checkedAt: iso(NOW), settings: { ...settings }, warnings: [], sources: connected || sources() });
+  const envelope = () => ({ version: 1, dtoVersion: 2, extensions: ['nullable_links'], platform: 'linux', checkedAt: iso(NOW), settings: clone(settings), warnings: [], sources: connected || sources() });
 
   const CATALOG = [['t3', 'T3 Code', true], ['claude', 'Claude Code', true], ['codex', 'Codex', true], ['cursor', 'Cursor', true, true],
     ['openbot', 'OpenBot'], ['pi', 'Pi'], ['omp', 'oh-my-pi'], ['hermes', 'Hermes'], ['openclaw', 'OpenClaw'], ['opencode', 'OpenCode']].map(([id, displayName, available, beta]) => ({
     id, displayName, available: !!available, beta: !!beta, status: available ? 'available' : 'planned', copyKey: available ? id + '_direct' : id + '_planned',
     capabilities: available ? { agents: true, lineage: id === 't3', limits: true, asksYou: id !== 'cursor', stuckDetection: id !== 'cursor', deepLinks: id === 't3' } : {} }));
+
+  // ---- GitHub CI, pull requests, ended results and machine load (design/ci-contract.md) ----
+  // Invented repositories, branches, titles and environments, joined to the default scene's agents.
+  const ciParam = params.get('ci') || 'off';
+  let ciEnabled = ciParam !== 'off';
+  const GIB = 1024 * 1024 * 1024;
+  const gh = (repo, rest) => 'https://github.com/' + repo + (rest ? '/' + rest : '');
+  const outcome = (status, data, o) => ({ status, attemptedAt: iso(NOW), checkedAt: (o && o.checkedAt) || (status === 'ok' || status === 'quiet' ? iso(NOW) : null), reason: (o && o.reason) || null, data });
+  const checksOf = (state, total, passed, failed, url) => outcome('ok', { state, total, passed, failed, running: state === 'running' ? total - passed - failed : 0, url, updatedAt: ago(1) });
+  const deployOf = (state, environment, repo) => (state ? outcome('ok', { environment, state, url: gh(repo, 'deployments'), updatedAt: ago(3) }) : outcome('quiet', null));
+  const ciRow = (repo, branch, agentTitle, start, pr, ci, deploy) => ({ repo, branch, agentIds: [idOf(agentTitle, start)],
+    pr: pr ? { number: pr, url: gh(repo, 'pull/' + pr) } : null, ci, deploy });
+  function ciRows(kind) {
+    const tp = 'tidepool-labs/tidepool'; const ks = 'tidepool-labs/kestrel';
+    const green = kind === 'green';
+    return [
+      ciRow(tp, 'sync/notes-conflicts', 'Resolve sync conflicts in the notes editor', 18, 131,
+        kind === 'rowdown' ? { status: 'unavailable', attemptedAt: iso(NOW), checkedAt: ago(12), reason: 'cannot_reach_github', data: null }
+          : green ? checksOf('passed', 12, 12, 0, gh(tp, 'pull/131')) : checksOf('running', 12, 7, 0, gh(tp, 'pull/131')), deployOf(null)),
+      ciRow(tp, 'photos/resume-uploads', 'Resume photo uploads after a dropped connection', 7, 128,
+        green ? checksOf('passed', 12, 12, 0, gh(tp, 'pull/128')) : checksOf('failed', 12, 9, 2, gh(tp, 'pull/128')), deployOf(green ? 'success' : 'in_progress', 'preview', tp)),
+      ciRow(ks, 'fix/rate-limiter-window', 'Find why the rate limiter answers 429 too early', 41, 57,
+        checksOf('passed', 9, 9, 0, gh(ks, 'pull/57')), deployOf(kind === 'rowdown' ? 'unknown' : 'success', 'staging', ks)),
+    ];
+  }
+  const pullRows = (kind) => (kind === 'green' ? [] : [
+    { repo: 'tidepool-labs/lantern-docs', number: 91, title: 'Add a search index', url: gh('tidepool-labs/lantern-docs', 'pull/91'), why: 'review_requested', ci: 'passed', updatedAt: ago(6) },
+    { repo: 'tidepool-labs/kestrel', number: 55, title: 'Upgrade the Postgres driver', url: gh('tidepool-labs/kestrel', 'pull/55'), why: 'ready_to_merge', ci: 'passed', updatedAt: ago(30) },
+  ]);
+  const endedRow = (repo, title, start, number, ci, mergeState) => ({ agentId: idOf(title, start), repo, number, title: 'Pull request #' + number,
+    url: gh(repo, 'pull/' + number), ci, mergeState, updatedAt: ago(start - 5) });
+  const endedRows = (kind) => {
+    const tp = 'tidepool-labs/tidepool'; const ks = 'tidepool-labs/kestrel'; const ld = 'tidepool-labs/lantern-docs';
+    const merged = [endedRow(tp, 'Tidepool: Fix the date picker on small screens', 200, 119, 'passed', 'merged'),
+      endedRow(ks, 'Kestrel: Add request IDs to error logs', 150, 52, 'passed', 'merged'),
+      endedRow(ld, 'Lantern: Rewrite the quick start', 390, 88, 'passed', 'merged')];
+    if (kind === 'green') return merged;
+    return [...merged, endedRow(tp, 'Tidepool: Bump the image library', 270, 126, 'passed', 'open'),
+      endedRow(ks, 'Load test the token bucket on staging', 60, 53, 'failed', 'open'),
+      endedRow(tp, 'Tidepool: Map the sync states', 50, 130, 'running', 'draft')];
+  };
+  // One outcome per route for the chosen ?ci= state; `undefined` means the route answers 404.
+  function ciFeed(route) {
+    const kind = ciEnabled ? (ciParam === 'off' ? 'mixed' : ciParam) : 'off';
+    if (kind === 'none') return undefined;
+    if (kind === 'off') return outcome('not_set_up', null, { reason: 'disabled' });
+    if (kind === 'signedout') return outcome('not_set_up', null, { reason: 'gh_signed_out' });
+    if (kind === 'down') return outcome('unavailable', null, { reason: 'cannot_reach_github', checkedAt: ago(40) });
+    const omitted = kind === 'partial';
+    const data = route === 'ci' ? { rows: ciRows(kind), omitted }
+      : route === 'pulls' ? { count: pullRows(kind).length, rows: pullRows(kind), omitted } : { rows: endedRows(kind), omitted };
+    if (kind === 'dated') return outcome('last_known', data, { reason: 'cannot_reach_github', checkedAt: ago(40) });
+    return outcome(data.rows.length || omitted ? 'ok' : 'quiet', data);
+  }
+  function machineFeed() {
+    const gpu = (util, used, total) => ({ utilizationPercent: util, memoryUsedBytes: Math.round(used * GIB), memoryTotalBytes: total * GIB });
+    switch (params.get('load')) {
+      case 'calm': return outcome('ok', { cpuLoadPercent: 31, memoryPressurePercent: 58, gpu: null });
+      case 'gpu': return outcome('ok', { cpuLoadPercent: 44, memoryPressurePercent: 63, gpu: gpu(12, 3.1, 24) });
+      case 'hot': return outcome('ok', { cpuLoadPercent: 142, memoryPressurePercent: 93, gpu: gpu(97, 22.8, 24) });
+      case 'partial': return outcome('ok', { cpuLoadPercent: 38, memoryPressurePercent: null, gpu: null });
+      case 'down': return outcome('unavailable', null, { reason: 'cannot_read_machine' });
+      default: return undefined;
+    }
+  }
+  function ciRoute(path, init, body) {
+    const routes = { '/api/sources/v1/ci': 'ci', '/api/sources/v1/ci/pulls': 'pulls', '/api/sources/v1/ci/ended': 'ended' };
+    if (path === '/api/sources/v1/ci/settings') {
+      if (ciParam === 'none') return json({ error: 'not_found' }, 404);
+      if (init && init.method === 'POST') {
+        if (!body || Object.keys(body).length !== 1 || typeof body.enabled !== 'boolean') return json({ error: 'invalid_settings' }, 422);
+        ciEnabled = body.enabled;
+      }
+      return json({ version: 1, enabled: ciEnabled });
+    }
+    if (routes[path]) { const o = ciFeed(routes[path]); return o ? json({ version: 1, [routes[path]]: o }) : json({ error: 'not_found' }, 404); }
+    if (path === '/api/sources/v1/machine') { const o = machineFeed(); return o ? json({ version: 1, machine: o }) : json({ error: 'not_found' }, 404); }
+    return null;
+  }
 
   const json = (body, status) => Promise.resolve(new Response(JSON.stringify(body), { status: status || 200, headers: { 'Content-Type': 'application/json' } }));
   let revision = 1;
@@ -159,8 +249,9 @@
     const body = init && init.body ? JSON.parse(init.body) : null;
     if (path === '/api/sources/v1/glance') return scene === 'readerdown' ? json({ error: 'down' }, 503) : json(envelope());
     if (path === '/api/settings') {
-      if (init && init.method === 'POST') settings = { ...settings, ...body };
-      return json({ settings: { ...settings }, defaults: { stuckMinutes: 15, endedExpiryHours: 24, limitAlertPercent: 10 }, warnings: [] });
+      // A post replaces what it carries (theme whole) and is kept for the rest of the page's life.
+      if (init && init.method === 'POST') settings = { ...settings, ...clone(body) };
+      return json({ version: 2, settings: clone(settings), defaults: { stuckMinutes: 15, endedExpiryHours: 24, limitAlertPercent: 10, theme: DEFAULT_THEME }, warnings: [] });
     }
     if (path === '/api/sources/v1') return json({ version: 1, revision, sources: envelope().sources });
     if (path === '/api/sources/v1/catalog') return json({ harnesses: CATALOG });
@@ -177,6 +268,8 @@
       return json({ source: tag, revision: ++revision });
     }
     if (path === '/api/sources/v1/disconnect') { connected = (connected || sources()).filter((s) => s.source.id !== body.sourceId); return json({ revision: ++revision }); }
+    const ci = ciRoute(path, init, body);
+    if (ci) return ci;
     return json({ error: 'not_found' }, 404);
   };
 

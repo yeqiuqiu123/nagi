@@ -32,8 +32,8 @@ Nagi had no accent; switches and the default button were ink-coloured. It gets o
 
 Five colours can be changed: **Accent**, **Claude**, **Codex**, **Gemini**, **T3**. The owner picks a colour; Nagi keeps its hue and moves its lightness until the mark and the word are readable in both the night and the day of the chosen theme. So a pick is one colour, and what is saved is one colour, but four values are drawn from it (mark and word, night and day), the same way the built-in pairs were tuned by hand.
 
-- **Nudge, not refuse, for contrast.** A pick too dark for night is lightened until its arc clears 3:1 and its word 7:1. The swatch shows the colour Nagi will really draw, and one line says it was adjusted.
-- **Refuse, for a signal.** Claude, Codex and Gemini paint arcs and nodes, the same marks that turn yellow when a limit runs low and rose when an agent asks. A pick that lands on yellow or rose is refused with one line saying why. Accent and T3 never paint those marks and are only held to contrast.
+- **Nudge, not refuse, for contrast.** A pick too dark for night is lightened until its arc clears 3:1 and its word 7:1. The swatch shows the colour Nagi will really draw. One line says it was adjusted, but only when the change is plain to see: a brand orange drawn a shade darker by day says nothing.
+- **Refuse, for a signal.** Claude, Codex and Gemini paint arcs and nodes, the same marks that turn yellow when a limit runs low and rose when an agent asks. A pick that lands on yellow or rose is refused with one line saying why: within 0.09 in OKLab of the theme's rose or yellow, or, for yellow, any saturated colour within 20 degrees of its hue, because a yellow stays a yellow however far it is darkened. Accent and T3 never paint those marks and are only held to contrast. Providers are not kept away from the green, red and blue of checks: Codex is green and Gemini is blue by their own brands, and a check is told from a node by its shape and its place on the row.
 - **Locked.** Rose, yellow, green, red, blue and the greys are not in the picker and cannot be set through the API.
 
 ### Where it lives
