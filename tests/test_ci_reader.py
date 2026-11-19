@@ -14,8 +14,9 @@ import pytest
 
 import machine
 from agents_service import AgentsService, outcome
-from ci_service import CI_SOURCE_ID
+from ci_service import CI_SOURCE_ID, CIService
 from ci_workspace import PREFERENCE
+from github_ci import GitHubError
 from install_reader import install
 from owner_auth import OwnerAuth, authenticated_open
 import server
@@ -27,8 +28,18 @@ STAMP = NOW.isoformat()
 
 GIT = """
 import sys
+from pathlib import Path
 args = sys.argv[1:]
+workspace = Path.cwd().name
+if workspace == 'not-a-repo':
+    print('fatal: not a git repository', file=sys.stderr)
+    sys.exit(128)
+if workspace == 'unreadable':
+    print('fatal: unable to read repo', file=sys.stderr)
+    sys.exit(128)
 if args[:1] == ['symbolic-ref']:
+    if workspace == 'detached':
+        sys.exit(1)
     print('feature/session')
 elif args[3].startswith('branch.'):
     sys.exit(1)
@@ -56,6 +67,9 @@ assert args[0] == 'api' and args[2:4] == ['--hostname', 'github.com']
 if options.get('signed_out'):
     print('Authenticate with gh auth login', file=sys.stderr)
     sys.exit(4)
+if options.get('not_found'):
+    print(json.dumps({'data':{'repository':None},'errors':[{'type':'NOT_FOUND','path':['repository']}]}))
+    sys.exit(1)
 stamp = options['stamp']
 repo = 'demo/kestrel'
 if args[1] == 'graphql':
@@ -80,6 +94,9 @@ if args[1] == 'graphql':
             dict(pull('unwatched',20), author={'login':'owner'}),
             dict(pull('unwatched',21), author={'login':'owner'}, isDraft=True),
             pull('not-watched-and-not-authored',22),
+            pull('feature/session',23,reviewDecision='APPROVED',statusCheckRollup={'state':'FAILURE'}),
+            pull('feature/session',24,reviewDecision='APPROVED',mergeable='CONFLICTING',mergeStateStatus='DIRTY'),
+            pull('feature/session',25,reviewDecision='APPROVED',statusCheckRollup={'state':'PENDING'}),
         ]
         print(json.dumps({'data':{'viewer':{'login':'owner'},
             'repository':{'pullRequests':connection(reads)}}}))
@@ -91,18 +108,17 @@ if args[1] == 'graphql':
             completed, conclusion = True, 'SUCCESS'
         checks = [{'__typename':'CheckRun','status':'COMPLETED' if completed else 'IN_PROGRESS',
                    'conclusion':conclusion,'startedAt':stamp,'completedAt':stamp if completed else None}]
-        ref = {'target':{'oid':sha,'statusCheckRollup':{'contexts':connection(checks)}},
+        assert 'tipDeployments: deployments' in query
+        assert 'deployments(first: 30' in query
+        deploy = {'ref':None,'createdAt':stamp,'latestEnvironment':'Preview','originalEnvironment':'Preview',
+                  'latestStatus':{'state':'SUCCESS','createdAt':stamp}}
+        ref = {'target':{'oid':sha,'statusCheckRollup':{'contexts':connection(checks)},
+                         'tipDeployments':connection([deploy])},
             'associatedPullRequests':connection([{'number':17,'headRefOid':sha,'repository':{'nameWithOwner':repo},'statusCheckRollup':None}])}
-        data = {'ref':None if options.get('deleted_branch') else ref}
+        data = {'ref':None if options.get('deleted_branch') else ref, 'deployments':connection([])}
         if 'ended=true' in args:
             data['historical'] = connection([dict(pull(branch), state='MERGED', title=options['unsafe_title'])])
         print(json.dumps({'data':{'repository':data}}))
-elif args[1].startswith('repos/'+repo+'/deployments?'):
-    import urllib.parse
-    ref = urllib.parse.parse_qs(args[1].split('?')[1])['ref'][0]
-    print(json.dumps([{'ref':ref,'id':11,'environment':'Preview','created_at':stamp}]))
-elif args[1]=='repos/'+repo+'/deployments/11/statuses?per_page=1':
-    print(json.dumps([{'state':'success','created_at':stamp,'environment':'Preview'}]))
 else:
     sys.exit(6)
 """
@@ -159,6 +175,7 @@ def local_reader(tmp_path):
     legacy.store.mutate('nagi-t3.json', {}, lambda value:value.update(
         version=1, origin='http://127.0.0.1:3773', credentialFile=str(data/'unused.json')))
     source = SourcesService(legacy, local_home=home)
+    source.ci.monotonic = Monotonic()
     with ThreadingHTTPServer(('127.0.0.1',0), server.Handler) as httpd:
         httpd.service, httpd.sources, httpd.owner_auth = legacy, source, OwnerAuth(data)
         worker = threading.Thread(target=httpd.serve_forever,daemon=True)
@@ -179,6 +196,13 @@ def local_reader(tmp_path):
             source.close()
 
 
+class Monotonic:
+    now = 0
+
+    def __call__(self):
+        return self.now
+
+
 def poll(source):
     source.poll(force=True)
     if source.ci.future:
@@ -186,8 +210,9 @@ def poll(source):
 
 
 def repoll(source):
-    source.ci.due = 0
-    source.ci.schedule()
+    ci = source.ci
+    ci.monotonic.now = max(ci.due, *(s.due for s in [*ci.branches.values(), *ci.pulls.values()]), 0) + 1
+    ci.schedule()
     source.ci.future.result(timeout=8)
 
 
@@ -249,6 +274,7 @@ def test_watched_ci_and_notification_survive_reservation_and_restart(fake_cli, l
     assert api(endpoint)['events'] == []
 
     restarted = SourcesService(source.legacy, local_home=source.local_home)
+    restarted.ci.monotonic = Monotonic()
     try:
         poll(restarted)
         assert restarted.ci.settings()['enabled']
@@ -269,15 +295,16 @@ def test_attention_prs_and_ended_results_include_merge_state(fake_cli, local_rea
     poll(source)
     repoll(source)
     pulls = api(CI+'/pulls')['pulls']['data']
-    assert pulls['count'] == 4 and pulls['omitted'] is False
+    assert pulls['count'] == 3 and pulls['omitted'] is False
     assert {row['number']:row['why'] for row in pulls['rows']} == {
-        17:'review_requested',18:'ready_to_merge',19:'changes_requested',20:'ready_to_merge'}
+        17:'review_requested',18:'ready_to_merge',19:'changes_requested'}
     ended = api(CI+'/ended')['ended']['data']
     assert ended['rows'] == [{'agentId':'c','repo':'demo/kestrel','number':17,
                                'title':'Pull request #17','url':'https://github.com/demo/kestrel/pull/17',
                                'ci':'passed','mergeState':'merged','updatedAt':STAMP}]
     assert str(tmp_path) not in json.dumps(ended)
-    assert api(CI)['ci']['data']['rows'][0]['ci']['reason'] == 'branch_unavailable'
+    assert api(CI)['ci']['status'] == 'quiet'
+    assert api('/api/sources/v1/status')['ci']['state'] == 'ok'
 
 
 def test_setup_and_github_failures_are_closed(fake_cli, local_reader):
@@ -291,7 +318,10 @@ def test_setup_and_github_failures_are_closed(fake_cli, local_reader):
     assert reading == {'status':'not_set_up','attemptedAt':STAMP,'checkedAt':None,
                        'reason':'gh_signed_out','data':None}
     assert api(CI+'/pulls')['pulls']['reason'] == 'gh_signed_out'
-    set_response(signed_out=False,override=True)
+    set_response(signed_out=False,not_found=True)
+    repoll(source)
+    assert api(CI)['ci']['data']['rows'][0]['ci']['reason'] == 'repo_not_found'
+    set_response(not_found=False,override=True)
     repoll(source)
     assert api(CI)['ci']['reason'] == 'cannot_reach_github'
     (binary/'gh').unlink()
@@ -372,3 +402,180 @@ def test_machine_projection_and_partial_sampler(monkeypatch):
                              'memoryTotalBytes':500*1024**2}}
     monkeypatch.setattr(machine,'machine_command',lambda _: 'N/A, 100, 200\n')
     assert machine.read_load('linux')['gpu'] is None
+
+
+
+def test_unwatchable_workspaces_are_quiet_but_git_read_errors_are_partial(fake_cli, tmp_path):
+    from nagi_store import LocalStore
+    from status_summary import ci_summary
+    for name in ('not-a-repo', 'detached', 'unreadable'):
+        (tmp_path/name).mkdir()
+    locations = [('old-claude', 'active', None),
+                 ('folder', 'active', (str(tmp_path/'not-a-repo'), 'main', None)),
+                 ('detached', 'active', (str(tmp_path/'detached'), None, None))]
+    time_source = Monotonic()
+    ci = CIService(LocalStore(Path.home()/'data'), Path.home(), lambda:NOW,
+                   lambda:(locations, False), monotonic=time_source)
+    try:
+        ci.configure(True)
+        ci.schedule()
+        ci.future.result(timeout=3)
+        assert ci.read()['status'] == 'quiet'
+        assert ci.read()['data'] == {'rows':[], 'omitted':False}
+        assert ci_summary(ci.read()) == {'state':'ok', 'failedRepos':[]}
+
+        locations.append(('unreadable', 'active', (str(tmp_path/'unreadable'), None, None)))
+        time_source.now = 30
+        ci.schedule()
+        ci.future.result(timeout=3)
+        assert ci.read()['reason'] == 'coverage_incomplete'
+        assert ci_summary(ci.read())['state'] == 'unknown'
+    finally:
+        ci.close(wait=True)
+
+
+@pytest.fixture
+def scheduled_ci(monkeypatch):
+    from nagi_store import LocalStore
+    import ci_service
+
+    attempts, pull_attempts = [], []
+    rows, states, problems = [], {}, {}
+    time_source = Monotonic()
+
+    class GitHubFixture:
+        stop_reason = None
+
+        def __init__(self, *_):
+            pass
+
+        def checks(self, repo, branch, ended):
+            key = repo, branch
+            attempts.append((time_source.now, key, ended))
+            if reason := problems.get(key):
+                if reason in ('gh_signed_out', 'rate_limited'):
+                    self.stop_reason = reason
+                raise GitHubError(reason)
+            check, deploy = states.get(key, ('passed', None))
+            return ('a'*40, None, {'state':check}, {'state':deploy} if deploy else None, None, False)
+
+        def waiting_pulls(self, repo, _):
+            pull_attempts.append((time_source.now, repo))
+            return [], False
+
+    monkeypatch.setattr(ci_service, 'GitHub', GitHubFixture)
+    ci = CIService(LocalStore(Path.home()/'data'), Path.home(), lambda:NOW,
+                   lambda:(rows, False), monotonic=time_source)
+    ci.configure(True)
+
+    def run(at):
+        time_source.now = at
+        ci.schedule()
+        if ci.future:
+            ci.future.result(timeout=3)
+        return {key for time, key, _ in attempts if time == at}
+
+    try:
+        yield ci, rows, states, problems, pull_attempts, run
+    finally:
+        ci.close(wait=True)
+
+
+def watch(rows, repo, branch, mode='active'):
+    rows.append((branch, mode, [repo, branch]))
+    return repo, branch
+
+
+def test_fast_polls_are_branch_local_and_expire_for_stalled_work(scheduled_ci):
+    ci, rows, states, _, pulls, run = scheduled_ci
+    running = watch(rows, 'demo/app', 'expected-check')
+    deploying = watch(rows, 'demo/app', 'pending-deploy')
+    passing = watch(rows, 'demo/app', 'passing')
+    ended = watch(rows, 'demo/finished', 'ended', 'ended')
+    states[running] = 'running', None
+    states[deploying] = 'passed', 'pending'
+    assert run(0) == {running, deploying, passing, ended}
+    assert run(30) == {running, deploying}
+    assert run(60) == {running, deploying}
+    assert run(120) == {running, deploying, passing}
+    assert sorted(pulls) == [(0, 'demo/app'), (0, 'demo/finished'), (120, 'demo/app')]
+    assert run(600) == {running, deploying, passing, ended}
+    assert run(630) == set()
+    assert ci.branches[ended].due == 1200
+    assert ci.branches[running].due == ci.branches[deploying].due == 720
+    assert run(720) == {running, deploying, passing}
+
+
+def test_a_bad_repo_has_its_own_backoff(scheduled_ci):
+    ci, rows, states, problems, _, run = scheduled_ci
+    good = watch(rows, 'demo/good', 'running')
+    bad = watch(rows, 'demo/bad', 'unreachable')
+    states[good] = 'running', None
+    problems[bad] = 'repo_not_found'
+    assert run(0) == {good, bad}
+    assert ci.due == 30
+    assert run(30) == {good}
+    assert run(60) == {good, bad}
+    assert run(90) == {good}
+    assert ci.branches[bad].due == 180
+    assert ci.read()['data']['rows'][1]['ci']['reason'] == 'repo_not_found'
+
+    problems[good] = 'cannot_reach_github'
+    assert run(120) == {good}
+    assert ci.due == 180
+    assert run(150) == set()
+
+
+@pytest.mark.parametrize('reason,intervals', [('gh_signed_out',(60,120,180,180)),
+                                              ('rate_limited',(240,480,960,1800))])
+def test_global_errors_back_off_all_rows_and_allow_recovery(scheduled_ci, reason, intervals):
+    ci, rows, states, problems, _, run = scheduled_ci
+    rate_limited = watch(rows, 'demo/bad', 'bad')
+    healthy = watch(rows, 'demo/good', 'healthy')
+    states[healthy] = 'running', None
+    problems[rate_limited] = reason
+    at = 0
+    for interval in intervals:
+        attempted = run(at)
+        assert rate_limited in attempted
+        assert ci.due == at + interval
+        assert run(ci.due-1) == set()
+        at += interval
+    problems.clear()
+    assert run(at) == {healthy, rate_limited}
+    assert ci.due == at + 30
+
+
+def test_a_quiet_cursor_does_not_make_local_t3_partial():
+    from status_summary import agent_counts
+    def source(harness, environment, running):
+        return {'source':{'harness':harness,'placement':'local'},'agents':{
+            'status':'ok','data':{'environmentId':environment,'counts':{
+                'running':running,'waitingOnYou':0,'stuck':0}}}}
+    totals, partial = agent_counts([source('t3','t3',2),source('cursor','cursor',0)])
+    assert totals['running'] == 2 and partial is False
+    totals, partial = agent_counts([source('t3','t3',2),source('cursor','cursor',1)])
+    assert totals['running'] == 2 and partial is True
+
+
+
+def test_deployments_choose_the_newest_branch_or_sha_match():
+    from github_ci import deployment
+    old = {'createdAt':'2026-11-13T10:00:00Z','latestEnvironment':'Preview','originalEnvironment':None,
+           'latestStatus':{'state':'SUCCESS','createdAt':'2026-11-13T10:01:00Z'},'ref':None}
+    branch = dict(old, createdAt='2026-11-13T11:00:00Z',
+                  ref={'prefix':'refs/heads/','name':'feature'}, latestEnvironment='Branch Preview')
+    tag = dict(old, createdAt='2026-11-13T12:00:00Z', ref={'prefix':'refs/tags/','name':'feature'})
+    repo = {'nodes':[tag, branch], 'pageInfo':{'hasNextPage':False}}
+    matches = deployment('demo/kestrel','feature',repo,{'nodes':[old]})
+    assert matches['environment'] == 'Branch Preview'
+    matches = deployment('demo/kestrel','feature',repo,{'nodes':[dict(old, createdAt='2026-11-13T13:00:00Z')]})
+    assert matches['environment'] == 'Preview'
+
+
+def test_required_check_without_any_jobs_keeps_branch_pending():
+    from github_ci import check_rollup
+    rollup = {'state':'EXPECTED','contexts':{'nodes':[],'pageInfo':{'hasNextPage':False}}}
+    projected = check_rollup(rollup,'https://github.com/demo/kestrel/actions')
+    assert projected['state'] == 'running'
+    assert projected['total'] == projected['running'] == 0

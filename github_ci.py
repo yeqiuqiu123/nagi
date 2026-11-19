@@ -13,10 +13,17 @@ from jsonio import strict_json_loads
 QUERY = """
 query($owner: String!, $repo: String!, $ref: String!, $branch: String!, $ended: Boolean!) {
   repository(owner: $owner, name: $repo) {
+    deployments(first: 30, orderBy: {field: CREATED_AT, direction: DESC}) {
+      pageInfo { hasNextPage }
+      nodes { ...DeploymentSample }
+    }
     ref(qualifiedName: $ref) {
       target {
         ... on Commit {
           oid
+          tipDeployments: deployments(first: 1, orderBy: {field: CREATED_AT, direction: DESC}) {
+            nodes { ...DeploymentSample }
+          }
           statusCheckRollup { ...CheckContexts }
         }
       }
@@ -36,8 +43,17 @@ query($owner: String!, $repo: String!, $ref: String!, $branch: String!, $ended: 
 }
 """
 
+DEPLOYMENTS = """
+fragment DeploymentSample on Deployment {
+  createdAt latestEnvironment originalEnvironment
+  ref { prefix name }
+  latestStatus { state createdAt }
+}
+"""
+
 CHECK_CONTEXTS = """
 fragment CheckContexts on StatusCheckRollup {
+  state
   contexts(first: 100) {
     pageInfo { hasNextPage }
     nodes {
@@ -100,6 +116,8 @@ def failure_reason(detail):
         return 'rate_limited'
     if any(mark in detail for mark in (b'gh auth login', b'http 401', b'bad credentials', b'not logged')):
         return 'gh_signed_out'
+    if any(mark in detail for mark in (b'http 404', b'could not resolve to a repository')):
+        return 'repo_not_found'
     return 'cannot_reach_github'
 
 
@@ -141,42 +159,56 @@ class GitHub:
         except (OSError, subprocess.SubprocessError):
             raise GitHubError('cannot_reach_github') from None
 
-    def api(self, endpoint, *args):
+    def graphql(self, query, **fields):
         with self.lock:
             if self.stop_reason:
                 raise GitHubError(self.stop_reason)
-        code, raw, detail = self.command('api', endpoint, '--hostname', 'github.com', *args)
-        if code:
-            reason = failure_reason(detail)
-            if reason in {'rate_limited', 'gh_signed_out'}:
-                with self.lock:
-                    self.stop_reason = reason
-            raise GitHubError(reason)
-        try:
-            return strict_json_loads(raw, MAX_OUTPUT)
-        except (ValueError, TypeError, RecursionError):
-            raise GitHubError('invalid_response') from None
-
-    def graphql(self, query, **fields):
         variables = []
         for key, value in fields.items():
             variables.extend(('-F', f'{key}={str(value).lower()}') if type(value) is bool
                              else ('-f', f'{key}={value}'))
-        result = self.api('graphql', '-f', 'query=' + query, *variables)
-        if not isinstance(result, dict) or result.get('errors'):
-            raise GitHubError('invalid_response')
-        return result.get('data')
+        code, raw, detail = self.command('api', 'graphql', '--hostname', 'github.com',
+                                         '-f', 'query=' + query, *variables)
+        try:
+            result = strict_json_loads(raw, MAX_OUTPUT)
+        except (ValueError, TypeError, RecursionError):
+            result = None
+        if isinstance(result, dict) and result.get('errors'):
+            errors = result['errors']
+            types = {error.get('type') for error in errors if isinstance(error, dict)} if isinstance(errors, list) else set()
+            if 'RATE_LIMITED' in types:
+                reason = 'rate_limited'
+            elif 'NOT_FOUND' in types and isinstance(result.get('data'), dict) and result['data'].get('repository') is None:
+                reason = 'repo_not_found'
+            elif (isinstance(result.get('data'), dict) and result['data'].get('repository') is not None
+                  and isinstance(errors, list) and all(is_partial_error(error) for error in errors)):
+                # Keep a missing ref or inaccessible deployment local to that measure.
+                return result['data']
+            else:
+                reason = failure_reason(detail) if code else 'invalid_response'
+        elif code:
+            reason = failure_reason(detail)
+        elif isinstance(result, dict) and isinstance(result.get('data'), dict):
+            return result['data']
+        else:
+            reason = 'invalid_response'
+        if reason in {'rate_limited', 'gh_signed_out'}:
+            with self.lock:
+                self.stop_reason = reason
+        raise GitHubError(reason)
 
     def checks(self, repo, branch, ended=False):
         owner, name = repo.split('/')
-        repository = self.graphql(QUERY + CHECK_CONTEXTS + PULL_SUMMARY, owner=owner, repo=name,
+        repository = self.graphql(QUERY + CHECK_CONTEXTS + DEPLOYMENTS + PULL_SUMMARY, owner=owner, repo=name,
                                   ref='refs/heads/' + branch, branch=branch, ended=ended)
         try:
             repository = repository['repository']
+            if repository is None:
+                raise GitHubError('repo_not_found')
             historical, partial = historical_pull(repository['historical'], repo, branch) if ended else (None, False)
             ref = repository['ref']
             if ref is None:
-                return None, None, 'branch_unavailable', historical, partial
+                return None, None, None, None, historical, partial
             commit = ref['target']
             sha = commit['oid']
             if not isinstance(sha, str) or not SHA.fullmatch(sha):
@@ -198,7 +230,11 @@ class GitHub:
                 checks = exc.args[0]
             except (KeyError, TypeError, ValueError):
                 checks = 'invalid_response'
-            return sha, link, checks, historical, partial
+            try:
+                deploy = deployment(repo, branch, repository['deployments'], commit['tipDeployments'])
+            except (TypeError, ValueError, KeyError, AttributeError, GitHubError) as exc:
+                deploy = exc.args[0] if isinstance(exc, GitHubError) else 'invalid_response'
+            return sha, link, checks, deploy, historical, partial
         except (TypeError, ValueError, KeyError, AttributeError):
             raise GitHubError('invalid_response') from None
 
@@ -223,28 +259,40 @@ class GitHub:
         except (TypeError, ValueError, KeyError, AttributeError):
             raise GitHubError('invalid_response') from None
 
-    def deployment(self, repo, branch):
-        try:
-            prefix = f'repos/{repo}/deployments'
-            deployments = self.api(prefix + '?' + urlencode({'ref': branch, 'per_page': 1}))
-            current = first(deployments)
-            if current is None:
-                return None
-            if current['ref'] not in (branch, 'refs/heads/' + branch):
-                raise ValueError()
-            deployment_id = number(current['id'])
-            status = first(self.api(f'{prefix}/{deployment_id}/statuses?per_page=1'))
-            state = status['state'] if status is not None else 'unknown'
-            if status is not None and state not in DEPLOY_STATES:
-                raise ValueError()
-            environment = (status or {}).get('environment') or current['environment']
-            safe_environment = (isinstance(environment, str)
-                                and re.fullmatch(r'[A-Za-z][A-Za-z0-9 _-]{0,39}', environment))
-            return {'environment': environment if safe_environment else 'Deployment', 'state': state,
-                    'url': f'https://github.com/{repo}/deployments',
-                    'updatedAt': iso((status or current)['created_at'])}
-        except (TypeError, ValueError, KeyError, AttributeError):
-            raise GitHubError('invalid_response') from None
+
+def is_partial_error(error):
+    if not isinstance(error, dict):
+        return False
+    path = error.get('path')
+    return isinstance(path, list) and (
+        path[:2] == ['repository', 'deployments']
+        or path[:4] == ['repository', 'ref', 'target', 'tipDeployments']
+        or (path == ['repository', 'ref'] and error.get('type') == 'NOT_FOUND'))
+
+
+def deployment(repo, branch, repository_deploys, tip_deploys):
+    if repository_deploys is None or tip_deploys is None:
+        raise GitHubError('invalid_response')
+    nodes, partial = connection(repository_deploys, 30)
+    matches = [node for node in nodes if (node['ref'] or {}).get('prefix') == 'refs/heads/'
+               and node['ref'].get('name') == branch]
+    tip = first(tip_deploys['nodes'])
+    if tip is not None:
+        matches.append(tip)
+    if not matches:
+        if partial:
+            raise GitHubError('coverage_incomplete')
+        return None
+    latest = max(matches, key=lambda node: stamp(node['createdAt']))
+    status = latest['latestStatus']
+    state = status['state'].lower() if status is not None else 'unknown'
+    if status is not None and state not in DEPLOY_STATES:
+        raise ValueError()
+    environment = latest['latestEnvironment'] or latest['originalEnvironment']
+    safe = isinstance(environment, str) and re.fullmatch(r'[A-Za-z][A-Za-z0-9 _-]{0,39}', environment)
+    return {'environment': environment if safe else 'Deployment', 'state': state,
+            'url': f'https://github.com/{repo}/deployments',
+            'updatedAt': iso((status or latest)['createdAt'])}
 
 
 def first(values):
@@ -290,7 +338,9 @@ def check_rollup(rollup, url):
         counts[result] += 1
         if date is not None:
             updated.append(stamp(date))
-    state = next((key for key in ('failed', 'running', 'cancelled', 'passed') if counts[key]), 'none')
+    expected = rollup is not None and rollup.get('state') in ('PENDING', 'EXPECTED')
+    state = ('failed' if counts['failed'] else 'running' if counts['running'] or expected
+             else 'cancelled' if counts['cancelled'] else 'passed' if counts['passed'] else 'none')
     return {'state': state, 'total': len(nodes), 'passed': counts['passed'],
             'failed': counts['failed'], 'running': counts['running'], 'url': url,
             'updatedAt': max(updated).isoformat() if updated else None}
@@ -327,9 +377,9 @@ def pull_summary(pr, repo):
 
 
 def ready_to_merge(pr, ci):
-    return pr['reviewDecision'] == 'APPROVED' or (
-        pr['mergeable'] == 'MERGEABLE' and pr['mergeStateStatus'] in ('CLEAN', 'HAS_HOOKS')
-        and ci == 'passed')
+    return (pr['reviewDecision'] == 'APPROVED' and pr['mergeable'] == 'MERGEABLE'
+            and pr['mergeStateStatus'] in ('CLEAN', 'HAS_HOOKS')
+            and ci in ('passed', 'none'))
 
 
 def attention_pull(pr, repo, viewer):

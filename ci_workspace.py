@@ -73,7 +73,14 @@ class WorkspaceUnavailable(ValueError):
     pass
 
 
+class _NotARepository(Exception):
+    pass
+
+
 def resolve_workspace(cwd, branch=None, *, timeout=.5):
+    """Return a watch pair, None without a workspace, or False for an unsupported remote."""
+    if cwd is None:
+        return None
     if not workspace_path(cwd):
         raise WorkspaceUnavailable()
     path = env_path()
@@ -88,13 +95,22 @@ def resolve_workspace(cwd, branch=None, *, timeout=.5):
         remaining = deadline - time.monotonic()
         if remaining <= 0:
             raise TimeoutError()
-        code, output, _ = run_bounded([git, *args], env=env, cwd=cwd,
-                                      timeout=remaining, output_limit=4096)
-        return output.decode('ascii').strip() if code == 0 else None
+        code, output, detail = run_bounded([git, *args], env=env, cwd=cwd,
+                                           timeout=remaining, output_limit=4096, stderr_limit=4096)
+        if code == 0:
+            return output.decode('ascii').strip()
+        if code == 1:
+            return None
+        if code == 128 and (b'not a git repository' in detail
+                            or b'--local can only be used inside a git repository' in detail):
+            raise _NotARepository()
+        raise WorkspaceUnavailable()
 
     try:
         if branch is None:
             branch = read('symbolic-ref', '--quiet', '--short', 'HEAD')
+            if branch is None:
+                return None
         if not branch_name(branch):
             raise WorkspaceUnavailable()
         tracked = read('config', '--local', '--get', f'branch.{branch}.remote',
@@ -106,8 +122,10 @@ def resolve_workspace(cwd, branch=None, *, timeout=.5):
             if len(names) == 1 and names[0] != remote and REMOTE_NAME.fullmatch(names[0]):
                 url = read('config', '--local', '--get', f'remote.{names[0]}.url', REMOTE_FILTER)
         if not url or not re.fullmatch(REMOTE_FILTER, url):
-            return None
+            return False
         repo = re.sub(GITHUB_PREFIX, '', url).rstrip('/').removesuffix('.git')
         return (repo.lower(), branch) if repo_name(repo) else None
+    except _NotARepository:
+        return None
     except (OSError, ValueError, subprocess.SubprocessError):
         raise WorkspaceUnavailable() from None

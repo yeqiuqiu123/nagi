@@ -47,9 +47,11 @@ outcome before rendering its fields. CI and deployment checks can fail
 independently. The check rollup is for the GitHub branch tip. An open PR for that tip supplies
 the PR link and its rollup when available. Failed takes precedence
 over running, then cancelled and passed. Neutral/skipped checks count toward
-total and do not count toward passed. No checks is state `none`. The deployment
-is the latest GitHub deployment for the exact branch ref, which can be for an
-older commit. No deployment is quiet with null data. A deployment without a
+total and do not count toward passed. No checks is state `none`. The deployment is the newest match from the tip commit's deployments and the
+30 newest repository deployments. That includes deployments recorded by SHA and
+branch-ref deployments from older commits. If the bounded repository sample is
+incomplete and contains no match anywhere, the deployment outcome is unavailable
+with `coverage_incomplete`. A complete empty result is quiet with null data. A deployment without a
 status is shown as unknown. Links are constructed GitHub URLs. Remote text such
 as PR titles, check labels and deployment target URLs is omitted. The deployment
 label is a short environment name or a generic label if unsafe to display.
@@ -64,15 +66,26 @@ on its next lifecycle hook after opt-in. Tailnet workspaces are skipped. Resolve
 GitHub remotes privately and group by repo and branch, with active work first
 and a maximum of 20 pairs. Local paths and Git remotes never leave discovery.
 
-The background poll targets 30 seconds for running CI or a deploying environment
-and 120 seconds when settled, with bounded exponential backoff on errors.
+A non-repository workspace, detached HEAD, Claude session without Git evidence,
+or branch missing on GitHub contributes no CI row. A deleted branch can still
+contribute an ended PR result. A genuine discovery failure or bound contributes
+to `omitted`.
+
+Each due branch uses one GraphQL request for checks, deployments and any
+historical PR. Active branches poll every 30 seconds while work is pending,
+for up to 10 minutes per continuous pending period on the same tip. Other
+active branches poll every 120 seconds, and ended-only branches every 10
+minutes. The PR attention feed polls separately per repository on the settled
+or ended cadence. Failures back off per branch or repository. Rate limiting,
+sign-out and a failure across all watched branches pause the GitHub batch.
+Sign-out retries stay within three minutes.
 Requests use read-only GitHub CLI subprocesses with explicit GitHub host,
 bounded output and timeouts, and no inherited credential variables, diagnostic
 output or prompts. Only GitHub receives repository and ref selectors.
 
 Closed reasons are `disabled`, `checking`, `coverage_incomplete`, `not_github`,
 `gh_missing`, `gh_signed_out`, `cannot_reach_github`, `rate_limited`,
-`branch_unavailable`, and `invalid_response`. Disabled and missing CLI or sign-in
+`repo_not_found`, and `invalid_response`. Disabled and missing CLI or sign-in
 yield `not_set_up`. In-flight initial reads and failures yield `unavailable`
 with the attempt time, null data and any known last successful time.
 
@@ -102,8 +115,9 @@ actionable PRs. When omitted is true, present the count as partial. Consider
 non-draft open PRs in watched repositories when their head matches a watched
 branch or the GitHub CLI's signed-in viewer authored them. Reasons in priority
 order are an outstanding personal review request (`review_requested`), a
-changes-requested decision (`changes_requested`), and an approval awaiting
-merge or a mergeable PR with passing checks (`ready_to_merge`). A row has
+changes-requested decision (`changes_requested`), and an approved, mergeable
+PR whose merge state permits merging and whose CI has passed or has no checks
+(`ready_to_merge`). A row has
 `{repo,number,title,url,why,ci,updatedAt}`. CI is the row's CI state string or
 null if unavailable. Titles are short sanitized GitHub text, with a generic
 PR label when unsafe. Only a successful outcome may contribute a count to
