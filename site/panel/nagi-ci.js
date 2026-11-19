@@ -9,7 +9,7 @@
 //     Outcome  {status, attemptedAt, checkedAt, reason, data}: the route's `ci`/`pulls`/`ended`/`machine`
 //     null     the route answered 404 (a reader without the feature)
 //     undefined the fetch failed (the reader itself didn't answer)
-//   ctx = { now, vm, prev? }
+//   ctx = { now, vm, prev?, failedAt? }   failedAt[key] = when that feed's own read failed (ms)
 //     vm        NagiModel.buildSources(envelope).vm: `vm.list[].rows[]` (and their children) are the
 //               running rows; their `id` is the raw agent id, the same string as the contract's
 //               `agentIds`, with no source prefix. `vm.endedAll.groups[].agents` lists every ended
@@ -79,14 +79,17 @@
   // The one rule for a GitHub link, mirrored in nagi_links.github_link and
   // SourceLinks.githubLink: https, host exactly github.com, no credentials, port, query or
   // fragment, no percent signs, nothing below 33, at most 2048 characters, and a path of
-  // /owner/repo alone or followed by one of the routes the panel links to: pull/<n>,
-  // actions, actions/runs/<n> or deployments. GitHub's own first segments (sign-in, SSO,
-  // settings) are refused whatever follows.
+  // /owner/repo/ followed by one of the routes the panel links to: pull/<n>, actions,
+  // actions/runs/<n> or deployments. The bare /owner/repo is not one of them.
   const OWNER = /^[A-Za-z0-9-]{1,39}$/;
   const REPO = /^[A-Za-z0-9._-]{1,100}$/;
   const ROUTE = /^(?:pull\/[1-9][0-9]{0,18}|actions(?:\/runs\/[1-9][0-9]{0,18})?|deployments)$/;
-  const RESERVED = new Set(['orgs', 'organizations', 'enterprises', 'login', 'logout', 'session', 'sessions', 'settings',
-    'account', 'users', 'apps', 'marketplace', 'oauth', 'join', 'signup', 'sso', 'sponsors', 'codespaces']);
+  // First segments that are GitHub's own pages and can never be an account: sign-in, SSO,
+  // settings, /new, /features and the rest. Source: Mottie/github-reserved-names 2.2.0 (MIT), https://github.com/Mottie/github-reserved-names, plus GitHub's sign-in and SSO segments.
+  // The same text is in nagi_links.py and SourceLinks.swift.
+  const RESERVED = new Set((
+    '300 302 400 401 402 403 404 405 406 407 408 409 410 411 412 413 414 415 416 417 418 419 420 421 422 423 424 425 426 427 428 429 430 431 500 501 502 503 504 505 506 507 508 509 510 511 693 694 695 900 about account admin advisories anonymous any api apps attributes auth billing blob blog bounty branches business businesses c cache careers case-studies categories central certification changelog chat cla cloud codereview codespaces collection collections comments commit commits companies compare contact contributing cookbook copilot coupons customer customer-stories customers dashboard dashboard-feed dashboards design develop developer diff discover discussions downloads downtime editor editors edu education enterprise enterprises events explore featured features feed files fixtures forked garage ghost gist gists git-guides github github-copilot graphs groups guide guides help help-wanted home hooks hosting hovercards identity images inbox individual info integration interfaces introduction invalid-email-address investors issues jobs join journal journals lab labs languages launch layouts learn legal library linux listings lists login logos logout mac maintenance malware man marketplace mcp mention mentioned mentioning mentions migrating milestones mine mirrors mobile navigation network new news newsletter newsroom none nonprofit nonprofits notices notifications oauth offer open-source organisations organizations orgs pages partners password-reset payments personal plans plugins popular popularity posts press preview pricing professional projects pulls raw readme recommendations redeem releases render reply repos repositories resources restore revert save-net-neutrality saved scraping search security services session sessions settings shareholders showcases signin signup site site-policy sitemap social-impact socials spam sponsors ssh sso staff starred stars static status statuses storage store stories styleguide subscriptions suggest suggestion suggestions support suspended talks teach teacher teachers teaching team teams ten terms timeline topic topics tos tour train training translations tree trending two-factor undefined updates user-attachments username users visualization w watching why-github wiki wikis windows works-with www0 www1 www2 www3 www4 www5 www6 www7 www8 www9'
+  ).split(' '));
   function safeGithub(value) {
     if (typeof value !== 'string' || value.length > 2048) return null;
     // A branch with no pull request is linked to its repository's Actions page filtered by
@@ -99,9 +102,9 @@
     const m = /^https:\/\/github\.com(\/.*)$/.exec(value);
     if (!m) return null;
     const [owner, repo, ...rest] = m[1].split('/').slice(1);
-    if (repo === undefined || !OWNER.test(owner) || !REPO.test(repo)) return null;
-    if (RESERVED.has(owner.toLowerCase()) || repo === '.' || repo === '..') return null;
-    if (rest.length && !ROUTE.test(rest.join('/'))) return null;
+    if (repo === undefined || !rest.length || !OWNER.test(owner) || !REPO.test(repo)) return null;
+    if (RESERVED.has(owner.toLowerCase()) || repo.endsWith('.')) return null;
+    if (!ROUTE.test(rest.join('/'))) return null;
     return 'https://github.com/' + [owner, repo, ...rest].join('/');
   }
 
@@ -111,6 +114,7 @@
   // last known to be absent (null) or off stays silent. With no earlier reading at all the
   // failure is kept, with the time it was tried: a read that failed is never the same as a
   // reader that has nothing to say. A malformed outcome is a read that failed.
+  // `now` here is the moment this feed's own read settled, when the panel knows it.
   function resolve(feed, prev, now) {
     if (feed === null) return null;
     if (feed === undefined) {
@@ -409,7 +413,10 @@
     const now = ctx.now != null ? ctx.now : Date.now();
     const prev = ctx.prev || {};
     const f = {};
-    for (const key of ['ci', 'pulls', 'ended', 'machine']) f[key] = resolve(feeds[key], prev[key], now);
+    // Each feed that didn't answer is dated by when its own request failed (ctx.failedAt),
+    // not by when the panel happened to draw: another feed may have kept it waiting.
+    const failedAt = obj(ctx.failedAt) ? ctx.failedAt : {};
+    for (const key of ['ci', 'pulls', 'ended', 'machine']) f[key] = resolve(feeds[key], prev[key], Number.isFinite(failedAt[key]) ? failedAt[key] : now);
     const available = ['ci', 'pulls', 'ended', 'machine'].some((k) => f[k] != null);
     if (!available) return { available: false, byAgent: {}, header: null, pulls: null, results: null, load: null, rail: null };
     const c = checks(f.ci, now, ctx.vm);

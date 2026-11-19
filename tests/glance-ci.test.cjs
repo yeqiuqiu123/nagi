@@ -85,6 +85,22 @@ test('no routes at all draws nothing; a first read that failed is kept as a fail
   assert.equal(build({ ci: null, pulls: null, ended: null, machine: ok({ cpuLoadPercent: 10, memoryPressurePercent: 20, gpu: null }) }).available, true);
 });
 
+test('a failed read is dated by when its own request failed, not by when the panel drew', () => {
+  // The pull-request read failed at 06:01; another feed held the draw until 06:03.
+  const failedAt = Date.parse('2026-11-12T23:01:20Z'); const drawn = Date.parse('2026-11-12T23:03:40Z');
+  const ctx = { ...ctxOf(false), now: drawn, failedAt: { pulls: failedAt } };
+  const r = C.build({ ci: ciFeed([]), pulls: undefined, ended: ok({ rows: [], omitted: false }), machine: null }, ctx);
+  assert.equal(r.pulls.failed.words, "couldn't check · tried 06:01");
+  // The same holds when an earlier reading is kept and shown dated, and for the load ring.
+  const kept = C.build({ ci: undefined, pulls: undefined, ended: undefined, machine: undefined },
+    { ...ctx, failedAt: { ci: failedAt, pulls: failedAt, ended: failedAt, machine: failedAt }, prev: { ci: ciFeed([row(['r1'], checks('passed', 1, 1, 0))]) } });
+  assert.match(kept.rail.detail, /Tried 06:01/);
+  assert.equal(kept.load.failed.words, "couldn't check · tried 06:01");
+  assert.equal(kept.pulls.failed.words, "couldn't check · tried 06:01");
+  // With no stamp (an older caller) the draw time is the only time there is.
+  assert.equal(C.build({ ci: ciFeed([]), pulls: undefined, ended: null, machine: null }, { ...ctxOf(false), now: drawn }).pulls.failed.words, "couldn't check · tried 06:03");
+});
+
 test('checks on a row: running, passed, failed and cancelled, each a link with a label and tooltip', () => {
   const r = build({ ci: ciFeed([
     row(['r1'], checks('running', 12, 7, 0), { pr: 131 }),
@@ -392,20 +408,16 @@ test('omitted anywhere makes the rail say the list is partial', () => {
 });
 
 test('only plain GitHub links pass; anything else is dropped to null', () => {
-  const good = ['https://github.com/o/r', 'https://github.com/o/r/pull/12', 'https://github.com/o/r/actions', 'https://github.com/o/r/actions/runs/123',
-    'https://github.com/o/r/deployments', 'https://github.com/o-1/r.e_p-o/pull/128'];
-  for (const url of good) assert.equal(C.safeGithub(url), url, url);
-  // Routes the panel never builds, and GitHub's own pages (sign-in, SSO, settings).
-  const wide = ['https://github.com/o/r/pull/12/checks', 'https://github.com/o/r/pull/12/files', 'https://github.com/o/r/pull/0', 'https://github.com/o/r/pull/abc', 'https://github.com/o/r/pull/12345678901234567890', 'https://github.com/o/r/commit/0123456789abcdef0123456789abcdef01234567/checks', 'https://github.com/o/r/a/b/c/d/e/f', 'https://github.com/o/r/actions/runs/12/job/3', 'https://github.com/o/r/actions/workflows', 'https://github.com/o/r/deployments/production', 'https://github.com/o/r/settings', 'https://github.com/o/r/issues/3', 'https://github.com/o/r/tree/main', 'https://github.com/orgs/acme/sso', 'https://github.com/orgs/acme', 'https://github.com/ORGS/acme', 'https://github.com/login/oauth', 'https://github.com/settings/actions', 'https://github.com/sessions/two-factor', 'https://github.com/enterprises/acme/sso'];
-  for (const url of wide) assert.equal(C.safeGithub(url), null, url);
-  const bad = ['http://github.com/o/r', 'https://github.com.evil.example/o/r', 'https://evil.example/github.com/o/r', 'https://user@github.com/o/r',
-    'https://user:pw@github.com/o/r', 'https://github.com:443/o/r', 'https://github.com/o/r?tab=checks', 'https://github.com/o/r/pull/1?', 'https://github.com/o/r#top',
-    'https://github.com/o/../r', 'https://github.com/o/r/..', 'https://github.com/o/r/./x', 'https://github.com/o/r%2Fpull', 'https://github.com/o/r/a/b/c/d/e/f/g',
-    'https://github.com/o/r\n', 'https://github.com/o/r/\tx', 'https://github.com/o//r', 'https://github.com/o/r/', 'https://gist.github.com/o/r',
-    'https://GITHUB.com/o/r', 'javascript:alert(1)', 'https://github.com/o', 'https://github.com/', 'https://github.com/o/r\\x', 'https://github.com/o/r/a b',
-    'https://github.com/o/r/' + 'x'.repeat(201), 'https://github.com/' + 'o'.repeat(40) + '/r', 'https://github.com/o_x/r', 'https://github.com/o/r/' + 'a/'.repeat(1100) + 'a',
-    'https://github.com/o/r/é', '', null, 42, {}];
-  for (const url of bad) assert.equal(C.safeGithub(url), null, String(url));
+  // One table for the three validators (this one, nagi_links.github_link and SourceLinks.githubLink).
+  const cases = JSON.parse(fs.readFileSync(path.join(__dirname, 'github-link-cases.json'), 'utf8'));
+  assert.ok(cases.accepted.length >= 8 && cases.refused.length >= 70 && cases.reserved.length >= 300);
+  for (const url of cases.accepted) assert.equal(C.safeGithub(url), url, url);
+  for (const url of [...cases.refused, null, undefined, 42, {}, ['https://github.com/o/r/pull/1']]) assert.equal(C.safeGithub(url), null, String(url));
+  // GitHub's own first segments are never an owner, whatever follows and however cased.
+  for (const name of cases.reserved) for (const owner of [name, name.toUpperCase(), name[0].toUpperCase() + name.slice(1)]) {
+    for (const rest of ['x', 'x/pull/1', 'actions', 'actions/actions', 'x/deployments']) assert.equal(C.safeGithub('https://github.com/' + owner + '/' + rest), null, owner + '/' + rest);
+  }
+  for (const repo of ['.', '..', 'r.', 'r..', '...', '.github.']) assert.equal(C.safeGithub('https://github.com/o/' + repo + '/pull/1'), null, repo);
   // The reader's branch filter is dropped, leaving the repository's Actions page; nothing else with a query passes.
   assert.equal(C.safeGithub('https://github.com/tidepool-labs/tidepool/actions?query=branch%3Afeature%2Foffline-sync'), 'https://github.com/tidepool-labs/tidepool/actions');
   assert.equal(C.safeGithub('https://github.com/tidepool-labs/tidepool/actions?query=branch%3Amain&next=https://evil.example'), null);

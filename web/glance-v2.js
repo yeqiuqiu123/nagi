@@ -32,6 +32,8 @@
   let feeds = { ci: null, pulls: null, ended: null, machine: null }; const feedsPrev = {}; let ci = null;
   // Which refresh is the newest: an older one that lands late is dropped, never drawn.
   let refreshGen = 0;
+  // When each feed's own read last failed, so `tried HH:MM` is that time and not the draw's.
+  const feedsFailedAt = {};
   // Whether each feed was last known to be absent (a reader without the route) or switched
   // off, kept across opens so a failed first read stays silent only for a feed that was.
   const FEEDS_KNOWN = 'nagi-feeds-known';
@@ -705,7 +707,7 @@
     const top = scroll.scrollTop;
     // Every open starts from the glance: nothing expanded.
     if (isOpen) { endedOpen = false; openDial = null; openSource = null; loadOpen = false; prsOpen = false; }
-    ci = window.NagiCI ? window.NagiCI.build(feeds, { now: opened, vm, prev: feedsPrev }) : null;
+    ci = window.NagiCI ? window.NagiCI.build(feeds, { now: opened, vm, prev: feedsPrev, failedAt: feedsFailedAt }) : null;
     renderStatus(vm); renderDials(vm); renderPast(vm, view); renderEnded(vm); renderRail(vm);
     panel.dataset.state = vm.mode;
     panel.dataset.kind = view.kind;
@@ -728,8 +730,10 @@
   // The CI model (web/glance-ci.js) is loaded by the page, before this file.
   const ciReady = Promise.resolve();
   const FEEDS = [['ci', '/api/sources/v1/ci'], ['pulls', '/api/sources/v1/ci/pulls'], ['ended', '/api/sources/v1/ci/ended'], ['machine', '/api/sources/v1/machine']];
-  // 404 is a reader without the route (null); any other failure is a read that didn't answer.
-  const readFeed = (key, path) => getJson(path).then((body) => (body && body[key] !== undefined ? body[key] : undefined), (error) => (error.status === 404 ? null : undefined));
+  // 404 is a reader without the route (null); any other failure is a read that didn't answer,
+  // stamped the moment its own request settles: that is the time it is said to have tried.
+  const readFeed = (key, path) => getJson(path).then((body) => (body && body[key] !== undefined ? body[key] : undefined), (error) => (error.status === 404 ? null : undefined))
+    .then((value) => [key, value, value === undefined ? Date.now() : null]);
   const FEED_GRACE_MS = 400;
 
   async function refresh() {
@@ -740,10 +744,10 @@
     // The four CI and load feeds are read alongside the glance and never hold it up: past a
     // short grace the glance draws without them, and again when they land.
     let landed = false;
-    const reads = Promise.all([ciReady, ...FEEDS.map(([key, path]) => readFeed(key, path).then((value) => [key, value]))]).then(([, ...pairs]) => {
+    const reads = Promise.all([ciReady, ...FEEDS.map(([key, path]) => readFeed(key, path))]).then(([, ...read]) => {
       if (!newest()) return;
-      feeds = Object.fromEntries(pairs);
-      pairs.forEach(([key, value]) => { if (value !== undefined) feedsPrev[key] = value; });
+      feeds = Object.fromEntries(read.map(([key, value]) => [key, value]));
+      read.forEach(([key, value, failed]) => { if (value !== undefined) { feedsPrev[key] = value; delete feedsFailedAt[key]; } else feedsFailedAt[key] = failed; });
       rememberFeeds();
       landed = true;
     });
@@ -771,7 +775,7 @@
     const checking = { status: 'unavailable', attemptedAt: new Date().toISOString(), checkedAt: null, reason: 'checking', data: null };
     for (const key of ['ci', 'pulls', 'ended']) {
       if (enabled === false) { feeds[key] = OFF; feedsPrev[key] = OFF; }
-      else { delete feedsPrev[key]; if (enabled === true) feeds[key] = checking; else delete feeds[key]; }
+      else { delete feedsPrev[key]; if (enabled === true) { feeds[key] = checking; delete feedsFailedAt[key]; } else { delete feeds[key]; feedsFailedAt[key] = Date.now(); } }
     }
     rememberFeeds();
     if (!firstRender) render();

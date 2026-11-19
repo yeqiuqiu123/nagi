@@ -483,27 +483,40 @@
   // One switch for Nagi's own preference: it reads checks, deployments and pull requests with the
   // GitHub CLI's existing sign-in, and never signs in to or changes GitHub. A reader without the
   // feature (404) draws no row at all. Contract: design/ci-contract.md.
+  // The preference has a revision: it moves when a change is sent and again when it settles.
+  // A read belongs to the sheet that asked for it and to the revision it started under. One
+  // that comes back to another sheet, or after the preference moved, is out of date and is
+  // dropped: a slow first read must never undo what a later change found to be true.
+  let ghRevision = 0;
   async function loadGitHub() {
-    const got = await call('/ci/settings', undefined);
-    if (!state) return;
-    if (!got.ok && got.status === 404) { state.gh = null; rerender(); return; }
-    // A read that failed leaves the preference unknown: never drawn as off.
-    state.gh = got.ok && typeof got.data.enabled === 'boolean' ? { enabled: got.data.enabled, outcome: null, triedAt: null }
-      : { enabled: false, unknown: true, triedAt: Date.now() };
-    rerender();
-    if (state.gh.enabled) watchGitHub();
+    const mine = state;
+    for (let tries = 0; mine && tries < 4; tries++) {
+      const revision = ghRevision;
+      const got = await call('/ci/settings', undefined);
+      if (state !== mine) return; // that sheet is closed
+      if (revision !== ghRevision) { if (mine.ghWriting) return; continue; } // the preference moved: ask again
+      if (!got.ok && got.status === 404) { mine.gh = null; rerender(); return; }
+      // A read that failed leaves the preference unknown: never drawn as off.
+      mine.gh = got.ok && typeof got.data.enabled === 'boolean' ? { enabled: got.data.enabled, outcome: null, triedAt: null }
+        : { enabled: false, unknown: true, triedAt: Date.now() };
+      rerender();
+      if (mine.gh.enabled && !mine.gh.unknown) watchGitHub();
+      return;
+    }
   }
 
   // What the reader last saw, re-read a few times while its first read is still in flight.
   async function watchGitHub() {
+    const mine = state; const gh = mine && mine.gh; const revision = ghRevision;
+    const current = () => state === mine && mine.gh === gh && revision === ghRevision && gh.enabled && !gh.unknown;
     for (let i = 0; i < 8; i++) {
-      if (!state || !state.gh || !state.gh.enabled) return;
+      if (!gh || !current()) return;
       const got = await call('/ci', undefined);
-      if (!state || !state.gh || !state.gh.enabled) return;
-      state.gh.outcome = got.ok && got.data && got.data.ci ? got.data.ci : null;
-      state.gh.triedAt = Date.now();
+      if (!current()) return;
+      gh.outcome = got.ok && got.data && got.data.ci ? got.data.ci : null;
+      gh.triedAt = Date.now();
       rerender();
-      const o = state.gh.outcome;
+      const o = gh.outcome;
       if (!(o && o.status === 'unavailable' && o.reason === 'checking')) return;
       await wait(1500);
     }
@@ -534,39 +547,48 @@
   }
 
   async function flipGitHub(enabled) {
-    const gh = state.gh;
+    const mine = state; const gh = mine.gh; const panel = host;
     if (!gh || gh.busy) return;
     const before = gh.unknown ? null : gh.enabled;
-    gh.busy = true; gh.enabled = enabled; gh.unknown = false; state.ghError = null;
+    ghRevision++; mine.ghWriting = true;
+    gh.busy = true; gh.enabled = enabled; gh.unknown = false; mine.ghError = null;
     if (!enabled) gh.outcome = null;
     renderKeeping('github-ci');
+    // From here the change runs to its end whether or not the sheet stays open: what the
+    // reader confirms is applied to the panel either way, and only the sheet's own drawing
+    // depends on the sheet still being there.
     let got = await call('/ci/settings', { enabled });
-    if (!state || state.gh !== gh) return;
     let settled = got.ok && typeof got.data.enabled === 'boolean' ? got.data.enabled : null;
     // The reader answered and refused (a 4xx): nothing was written, and the sheet may say so.
     const refused = !got.ok && got.status >= 400 && got.status < 500;
+    let error = null;
     if (settled === null && !refused) {
       // No answer, or one that can't be read: the write may or may not have landed. Ask.
       got = await call('/ci/settings', undefined);
-      if (!state || state.gh !== gh) return;
       settled = got.ok && typeof got.data.enabled === 'boolean' ? got.data.enabled : null;
-      if (settled !== null && settled !== enabled) state.ghError = 'Couldn\u2019t change that. GitHub is still ' + (settled ? 'on.' : 'off.');
+      if (settled !== null && settled !== enabled) error = 'Couldn\u2019t change that. GitHub is still ' + (settled ? 'on.' : 'off.');
     }
-    gh.busy = false;
+    ghRevision++; mine.ghWriting = false; gh.busy = false;
     if (settled !== null) {
       gh.enabled = settled; gh.outcome = null; gh.triedAt = null;
     } else if (refused && before !== null) {
       gh.enabled = before;
-      state.ghError = 'Couldn\u2019t change that. Nothing was changed.';
+      error = 'Couldn\u2019t change that. Nothing was changed.';
     } else {
       // Still no answer: the preference is unknown, and is shown as unknown.
       gh.enabled = false; gh.unknown = true; gh.triedAt = Date.now();
-      state.ghError = 'Couldn\u2019t reach Nagi\u2019s reader to change that.';
+      error = 'Couldn\u2019t reach Nagi\u2019s reader to change that.';
     }
-    renderKeeping('github-ci');
-    // The glance drops what it held from GitHub the moment the preference is off or unknown.
-    if (host.githubChanged) host.githubChanged(gh.unknown ? null : gh.enabled); else host.refresh();
-    if (!gh.unknown && gh.enabled) watchGitHub();
+    // The glance drops what it held from GitHub the moment the preference is off or unknown,
+    // and does so even when the sheet was closed before the answer came.
+    if (panel && panel.githubChanged) panel.githubChanged(gh.unknown ? null : gh.enabled); else if (panel) panel.refresh();
+    if (state === mine) {
+      mine.ghError = error;
+      renderKeeping('github-ci');
+      if (!gh.unknown && gh.enabled) watchGitHub();
+    } else if (state && state.step === 'sources') {
+      loadGitHub(); // another Sources sheet is open now: it reads what is true
+    }
   }
 
   // Unknown is its own state: the knob rests in the middle, and flipping it asks the reader again.

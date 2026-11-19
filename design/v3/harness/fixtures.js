@@ -9,6 +9,7 @@
 // ?load= calm | gpu | hot | partial | down (default: the machine route answers 404)
 // ?theme= violet (default) | graphite | tide   ?appearance= system (default) | light | dark
 // ?colors=accent:ff8800,claude:9a7bf0 (roles accent, claude, codex, gemini, t3), saved settings' theme.
+// ?fail=pulls and ?hold=machine are test hooks: a feed that gets no answer, and one kept waiting.
 // ?mac=1 shows the Mac density (pageZoom 0.85).   ?since=N pretends the last open was N minutes ago
 // with every limit 12 points higher, so the open motion has something to show.
 (() => {
@@ -253,6 +254,9 @@
 
   const json = (body, status) => Promise.resolve(new Response(JSON.stringify(body), { status: status || 200, headers: { 'Content-Type': 'application/json' } }));
   let revision = 1;
+  const listed = (name) => (params.get(name) || '').split(',').filter(Boolean);
+  const failing = listed('fail'); const holding = listed('hold');
+  let release = () => {}; const held = new Promise((resolve) => { release = resolve; });
   window.fetch = (input, init) => {
     const path = new URL(typeof input === 'string' ? input : input.url, location.href).pathname;
     const body = init && init.body ? JSON.parse(init.body) : null;
@@ -277,13 +281,18 @@
       return json({ source: tag, revision: ++revision });
     }
     if (path === '/api/sources/v1/disconnect') { connected = (connected || sources()).filter((s) => s.source.id !== body.sourceId); return json({ revision: ++revision }); }
+    // Test hooks for the feeds: ?fail=pulls makes that read get no answer at all, and
+    // ?hold=machine keeps that one waiting until window.__nagi.release() is called.
+    const feed = { '/api/sources/v1/ci': 'ci', '/api/sources/v1/ci/pulls': 'pulls', '/api/sources/v1/ci/ended': 'ended', '/api/sources/v1/machine': 'machine' }[path];
+    if (feed && failing.includes(feed)) return Promise.reject(new TypeError('fixture: no answer'));
+    if (feed && holding.includes(feed)) return held.then(() => ciRoute(path, init, body));
     const ci = ciRoute(path, init, body);
     if (ci) return ci;
     return json({ error: 'not_found' }, 404);
   };
 
   // The native shells listen for height and close; here the last height is kept for the shot script.
-  window.__nagi = { heights: [], closed: false };
+  window.__nagi = { heights: [], closed: false, release: () => release() };
   window.webkit = { messageHandlers: { nagiPanel: { postMessage(message) {
     const text = String(message);
     if (text.startsWith('height:')) window.__nagi.heights.push(Number(text.slice(7)));
