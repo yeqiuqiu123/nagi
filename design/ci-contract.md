@@ -57,8 +57,10 @@ label is a short environment name or a generic label if unsafe to display.
 ## Discovery and polling
 
 Use fresh locally observed T3, Claude Code and Codex activity. T3 worktree and
-branch take precedence over the project root. A named branch must resolve to a
-branch in that local repository. Tailnet workspaces are skipped. Resolve
+branch take precedence over the project root. A named T3 branch is resolved against the repository in its worktree. An
+ended row with a removed worktree may use its project repository and explicit
+branch to find a historical PR. Claude captures only the GitHub repo and branch
+on its next lifecycle hook after opt-in. Tailnet workspaces are skipped. Resolve
 GitHub remotes privately and group by repo and branch, with active work first
 and a maximum of 20 pairs. Local paths and Git remotes never leave discovery.
 
@@ -87,7 +89,7 @@ routes with sourceId `github-ci` and this event shape:
 {id, kind:"ci_failed", repo, occurredAt, links:{desktop:null,web:null}}
 ```
 
-Linux banners open Nagi. The Linux tray displays a failure indicator when any
+Native CI banners open Nagi. The Linux tray displays a failure indicator when any
 current CI row is freshly failed. The reader reports missing gh as not_set_up on
 both platforms.
 
@@ -105,7 +107,8 @@ merge or a mergeable PR with passing checks (`ready_to_merge`). A row has
 `{repo,number,title,url,why,ci,updatedAt}`. CI is the row's CI state string or
 null if unavailable. Titles are short sanitized GitHub text, with a generic
 PR label when unsafe. Only a successful outcome may contribute a count to
-asks-you. The feed shares CI opt-in, polling and closed reasons.
+asks-you. The feed shares CI opt-in, polling and closed reasons. It samples up to 50
+updated open PRs per watched repository and returns at most 100 attention rows.
 
 ## What finished agents produced
 
@@ -133,3 +136,15 @@ hostnames or paths are returned. The reader samples about every five seconds.
 If it cannot read any measure, status is unavailable with reason
 `cannot_read_machine`, the attempt time and null data. The same outcome is
 included as `machine` in `nagi status --json`.
+
+
+## Terminal summary
+
+GET /api/sources/v1/status uses the same owner proof as the native clients and
+reads cached observations. It returns `{version:1,agents,partial,ci,
+claudeRemainingPercent,alerts,machine}`. Agents is null or
+`{running,waitingOnYou,stuck}` from current readable sources. Partial indicates
+missing or overlapping agent coverage. CI is `{state,failedRepos}`, with state
+`disabled|ok|failed|unknown`. The Claude percentage comes from the lowest
+fresh headline window of a single visible Claude account, or is null.
+Alerts may contain `asks-you`, `stuck`, `ci-failed` and `low-limit`.

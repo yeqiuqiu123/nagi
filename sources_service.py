@@ -17,6 +17,7 @@ from agents_projection import display, project_agents, stamp, text
 from agents_service import AgentsService, outcome
 from ci_service import CIService, CI_SOURCE_ID
 from nagi_store import LocalStore
+from machine import MachineLoad
 from local_sources import binding, owned_root
 from source_adapters import ADAPTERS, COVERAGE, FLAGS
 from sources_transport import (
@@ -149,6 +150,7 @@ class SourcesService:
         legacy_service.factory=lambda directory: BoundedReader(original(directory),self.read_slots)
         self.peers, self.tests, self.services = {}, {}, {}
         self.ci = CIService(self.store, self.local_home, self.clock, self.ci_candidates)
+        self.machine = MachineLoad(self.clock)
 
     def detect_origin(self,origin):
         if not self.read_slots.acquire(timeout=8):

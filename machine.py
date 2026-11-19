@@ -1,9 +1,12 @@
 """This computer's CPU, memory, disk and uptime, for the limits response. Linux and macOS only."""
 import ctypes
+import math
+import os
 import re
 import shutil
 import subprocess
 import sys
+import threading
 import time
 from pathlib import Path
 
@@ -36,15 +39,15 @@ def mac_cpu_ticks():
         library.mach_port_deallocate(task, host)
 
 
-def mac_memory_uptime():
-    def output(args):
-        return subprocess.run(args, capture_output=True, text=True, timeout=2, check=True).stdout
-    total = int(output(['/usr/sbin/sysctl', '-n', 'hw.memsize']).strip())
-    boot = output(['/usr/sbin/sysctl', '-n', 'kern.boottime'])
-    match = re.fullmatch(r'\{ sec = ([0-9]+), usec = [0-9]+ \}.*\s*', boot)
-    if not match:
-        raise ValueError('Boot time unavailable')
-    vm = output(['/usr/bin/vm_stat'])
+def machine_command(argv, timeout=.8):
+    from ci_workspace import env_path
+    return subprocess.run(argv, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
+                          timeout=timeout, check=True, text=True,
+                          env={'PATH':env_path(),'LC_ALL':'C'}).stdout
+
+def mac_memory():
+    total = int(machine_command(['/usr/sbin/sysctl', '-n', 'hw.memsize']).strip())
+    vm = machine_command(['/usr/bin/vm_stat'])
     page = re.search(r'page size of ([0-9]+) bytes', vm)
     counts = dict(re.findall(r'^(Pages [^:]+):\s+([0-9]+)\.', vm, re.M))
     if not page or any(key not in counts for key in ('Pages free', 'Pages inactive', 'Pages speculative')):
@@ -52,7 +55,27 @@ def mac_memory_uptime():
     available = sum(int(counts[key]) for key in ('Pages free', 'Pages inactive', 'Pages speculative')) * int(page[1])
     if not 0 <= available <= total or total <= 0:
         raise ValueError('Invalid memory counters')
-    return total, total - available, max(0, int(time.time()) - int(match[1]))
+    return total, total - available
+
+
+def mac_memory_uptime():
+    total, used = mac_memory()
+    boot = machine_command(['/usr/sbin/sysctl', '-n', 'kern.boottime'])
+    match = re.fullmatch(r'\{ sec = ([0-9]+), usec = [0-9]+ \}.*\s*', boot)
+    if not match:
+        raise ValueError('Boot time unavailable')
+    return total, used, max(0, int(time.time()) - int(match[1]))
+
+
+def linux_memory():
+    values = {}
+    with Path('/proc/meminfo').open() as source:
+        for row in source:
+            key, _, value = row.partition(':')
+            if key in ('MemTotal', 'MemAvailable'):
+                values[key] = int(value.split()[0]) * 1024
+    total = values['MemTotal']
+    return total, total - values['MemAvailable']
 
 
 def host_metrics(directory):
@@ -77,19 +100,90 @@ def host_metrics(directory):
     next_total, next_idle = cpu_ticks()
     span = next_total - total
     cpu = 100 * (span - (next_idle - idle)) / span if span > 0 else None
-    values = {}
-    with Path('/proc/meminfo').open() as source:
-        for row in source:
-            key, _, value = row.partition(':')
-            if key in ('MemTotal', 'MemAvailable'):
-                values[key] = int(value.split()[0]) * 1024
+    total_memory, used_memory = linux_memory()
     disk = shutil.disk_usage(directory)
     return {
         'diskFreeBytes': disk.free,
         'diskUsedBytes': disk.used,
         'diskTotalBytes': disk.total,
         'cpuPercent': round(cpu, 1) if cpu is not None and 0 <= cpu <= 100 else None,
-        'memoryUsedBytes': values['MemTotal'] - values['MemAvailable'],
-        'memoryTotalBytes': values['MemTotal'],
+        'memoryUsedBytes': used_memory,
+        'memoryTotalBytes': total_memory,
         'uptimeSeconds': int(float(Path('/proc/uptime').read_text().split()[0])),
     }
+
+
+
+def cpu_load(platform):
+    if platform == 'darwin':
+        average, cores = machine_command(['/usr/sbin/sysctl', '-n', 'vm.loadavg', 'hw.logicalcpu']).splitlines()
+        load = float(average.strip('{} ').split()[0])
+        count = int(cores)
+    else:
+        with Path('/proc/loadavg').open() as source:
+            load = float(source.readline(256).split()[0])
+        count = os.cpu_count()
+    if not count or not math.isfinite(load) or load < 0:
+        raise ValueError('CPU load unavailable')
+    return round(100 * load / count, 1)
+
+
+def nvidia_load():
+    from ci_workspace import env_path
+    executable = shutil.which('nvidia-smi', path=env_path())
+    if not executable:
+        return None
+    lines = machine_command([executable, '--query-gpu=utilization.gpu,memory.used,memory.total',
+                             '--format=csv,noheader,nounits']).splitlines()
+    if not 1 <= len(lines) <= 64:
+        raise ValueError('GPU counters unavailable')
+    samples = []
+    for line in lines:
+        utilization, used, total = map(int, line.split(','))
+        if not 0 <= utilization <= 100 or not 0 <= used <= total or total <= 0:
+            raise ValueError('Invalid GPU counters')
+        samples.append((utilization, used, total))
+    return {'utilizationPercent':max(sample[0] for sample in samples),
+            'memoryUsedBytes':sum(sample[1] for sample in samples) * 1024**2,
+            'memoryTotalBytes':sum(sample[2] for sample in samples) * 1024**2}
+
+
+def read_load(platform):
+    def memory():
+        total, used = mac_memory() if platform == 'darwin' else linux_memory()
+        if total <= 0 or not 0 <= used <= total:
+            raise ValueError('Invalid memory counters')
+        return round(100 * used / total, 1)
+
+    def optional(read):
+        try:
+            return read()
+        except (OSError, ValueError, IndexError, KeyError, subprocess.SubprocessError):
+            return None
+
+    return {'cpuLoadPercent':optional(lambda:cpu_load(platform)),
+            'memoryPressurePercent':optional(memory), 'gpu':optional(nvidia_load)}
+
+
+class MachineLoad:
+    def __init__(self, clock):
+        from agents_service import outcome
+        self.clock = clock
+        self.lock = threading.Lock()
+        self.snapshot = outcome('unavailable', clock().isoformat(), reason='checking')
+
+    def poll(self):
+        from agents_service import outcome
+        at = self.clock().isoformat()
+        if sys.platform not in ('linux', 'darwin'):
+            result = outcome('unsupported', at, reason='platform_unsupported')
+        else:
+            data = read_load(sys.platform)
+            result = (outcome('ok', at, at, data=data) if any(v is not None for v in data.values())
+                      else outcome('unavailable', at, self.read()['checkedAt'], 'cannot_read_machine'))
+        with self.lock:
+            self.snapshot = result
+
+    def read(self):
+        with self.lock:
+            return self.snapshot

@@ -56,6 +56,19 @@ machine's T3 over Tailscale (pipe its read-only token in with `--token-stdin`);
 `--t3-local` pairs with the Mac's own T3 Code. `mac/test.sh` runs the Swift tests;
 `mac/uninstall-mac.sh` removes it all.
 
+## Terminal status
+
+`install.sh` installs `nagi` in `~/.local/bin`. If your shell cannot find it,
+add that directory to your PATH. Try `nagi status` in a shell prompt or tmux.
+Use `nagi status --json` for the full summary, including machine load, or
+`nagi status --waybar` for a Waybar custom module with `"return-type": "json"`.
+`nagi status --quiet` prints nothing and exits 0 when clear, 1 for an alert,
+or 2 when the status is unknown. A reader it cannot reach shows `nagi ?`.
+
+GitHub CI is opt-in and uses your existing `gh` sign-in for read-only GitHub
+requests. Once enabled, terminal status includes CI failures in watched
+repositories.
+
 ## Private by design
 
 - **Read-only.** Nagi can't stop, send to or approve anything in an agent app.

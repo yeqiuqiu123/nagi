@@ -16,6 +16,7 @@ from agents_service import AgentsService,DEFAULTS
 from jsonio import strict_json_loads
 from sources_service import SourcesService
 from sources_transport import SourceError
+from status_summary import STATUS_PATH, reader_status
 
 ROOT=Path(__file__).resolve().parent
 FILES={'/glance':'glance-v2.html','/overview':'glance-v2.html','/nagi-glance.js':'glance-v2.js',
@@ -27,7 +28,9 @@ AUTH={'/auth/challenge','/auth/launch','/auth/redeem'}
 SOURCES='/api/sources/v1'
 CI=SOURCES+'/ci'
 CI_SETTINGS=CI+'/settings'
-SOURCE_GET={SOURCES,SOURCES+'/glance',SOURCES+'/catalog',SOURCES+'/notifications',CI,CI_SETTINGS}
+CI_FEEDS={CI: 'ci', CI+'/pulls': 'pulls', CI+'/ended': 'ended'}
+MACHINE=SOURCES+'/machine'
+SOURCE_GET={SOURCES,SOURCES+'/glance',SOURCES+'/catalog',SOURCES+'/notifications',CI_SETTINGS,MACHINE,STATUS_PATH}|CI_FEEDS.keys()
 SOURCE_POST={SOURCES+'/'+route for route in ('discover','test','connect','disconnect','notifications/reserve','notifications/claim','notifications/release')}|{CI_SETTINGS}
 SOURCE_SCHEMA=re.compile(re.escape(SOURCES)+r'/schema/([a-z0-9]+)')
 SOURCES_INIT=threading.Lock()
@@ -84,10 +87,13 @@ class Handler(BaseHTTPRequestHandler):
             if path==SOURCES+'/glance':return self.send(200,service.glance(platform()))
             if path==SOURCES+'/catalog':return self.send(200,service.catalog())
             if path==SOURCES+'/notifications':return self.send(200,service.notifications())
+            if path==STATUS_PATH:return self.send(200,reader_status(service))
+            if path==MACHINE:return self.send(200,{'version':1,'machine':service.machine.read()})
             if path==CI_SETTINGS:return self.send(200,service.ci.settings())
-            if path==CI:
+            if path in CI_FEEDS:
                 service.ci.schedule()
-                return self.send(200,{'version':1,'ci':service.ci.read()})
+                kind=CI_FEEDS[path]
+                return self.send(200,{'version':1,kind:service.ci.read(kind)})
             schema=SOURCE_SCHEMA.fullmatch(path)
             if schema:return self.send(200,service.schema(schema.group(1)))
             return self.send(405 if path in SOURCE_POST else 404,{'error':'method_not_allowed' if path in SOURCE_POST else 'not_found'})
@@ -194,6 +200,8 @@ def refresh_loop(service,stop):
     while not stop.is_set():
         try:service.poll()
         except Exception:pass # A malformed source or local file must never kill refresh.
+        try:service.machine.poll()
+        except Exception:pass
         stop.wait(5)
 
 
