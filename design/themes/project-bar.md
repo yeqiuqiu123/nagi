@@ -43,12 +43,8 @@ Machine load is its own feature, approved on its own, and does not wait for GitH
 
 ## Links out
 
-A mark may open only these pages, in the browser, on the owner's own click or Return: `https://github.com/<owner>/<repo>`, its `pull/<n>`, `actions`, `actions/runs/<n>` and `deployments`. Ids are numbers. GitHub's own first segments (`orgs`, `login`, `settings`, `sessions`, `enterprises` and the like) are refused whatever follows, so a link can never hand the browser to sign-in or SSO. The same rule is written three times, in `nagi_links.py`, `web/glance-ci.js` and `SourceLinks.swift`, with one table of accepted and refused links in each test suite.
+A mark may open only these pages, in the browser, on the owner's own click or Return: under `https://github.com/<owner>/<repo>/`, `pull/<n>`, `actions`, `actions/runs/<n>` and `deployments`. Ids are numbers. The bare repository is not on the list, because the panel never links to it.
 
-## Tells and don'ts
+GitHub's own first segments are never an owner, whatever follows: `new`, `features`, `orgs`, `login`, `settings`, `sessions`, `enterprises` and some three hundred more, taken from Mottie/github-reserved-names 2.2.0 (MIT) with GitHub's sign-in and SSO segments added. So a link can never hand the browser to sign-in, SSO or a page such as `/new/import`. A repository name ending in a dot is refused.
 
-- **Fluent drift:** a tile per theme with a label inside it, acrylic behind the sheet, a "live" preview that animates.
-- **Rainbow drift:** green or red on anything that isn't a check or a deployment; an accent on content.
-- **Monitor drift:** a second load ring, a percentage in the header, a sparkline.
-- **Log drift:** `CI passed` written on a row; a PR's whole title in the Ended line.
-- **Control drift:** anything that changes GitHub.
+The rule is written three times, in `nagi_links.py`, `web/glance-ci.js` and `SourceLinks.swift`. All three are tested against one table, `tests/github-link-cases.json`, and a Python test fails if the reserved names in the three sources ever differ.
