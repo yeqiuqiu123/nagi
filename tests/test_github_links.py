@@ -13,14 +13,33 @@ import notifications
 ACCEPTED = (
     'https://github.com/o/r',
     'https://github.com/o/r/pull/12',
-    'https://github.com/o/r/pull/12/checks',
+    'https://github.com/o/r/actions',
     'https://github.com/o/r/actions/runs/123',
-    'https://github.com/o/r/commit/0123456789abcdef0123456789abcdef01234567/checks',
     'https://github.com/o/r/deployments',
     'https://github.com/tidepool-labs/tidepool.web/pull/128',
-    'https://github.com/o/r/a/b/c/d/e/f',  # owner, repo and six more segments
 )
 REFUSED = (
+    # Routes the panel never builds, and GitHub's own pages (sign-in, SSO, settings).
+    'https://github.com/o/r/pull/12/checks',
+    'https://github.com/o/r/pull/12/files',
+    'https://github.com/o/r/pull/0',
+    'https://github.com/o/r/pull/abc',
+    'https://github.com/o/r/pull/12345678901234567890',
+    'https://github.com/o/r/commit/0123456789abcdef0123456789abcdef01234567/checks',
+    'https://github.com/o/r/a/b/c/d/e/f',
+    'https://github.com/o/r/actions/runs/12/job/3',
+    'https://github.com/o/r/actions/workflows',
+    'https://github.com/o/r/deployments/production',
+    'https://github.com/o/r/settings',
+    'https://github.com/o/r/issues/3',
+    'https://github.com/o/r/tree/main',
+    'https://github.com/orgs/acme/sso',
+    'https://github.com/orgs/acme',
+    'https://github.com/ORGS/acme',
+    'https://github.com/login/oauth',
+    'https://github.com/settings/actions',
+    'https://github.com/sessions/two-factor',
+    'https://github.com/enterprises/acme/sso',
     'http://github.com/o/r',
     'https://github.com.evil.example/o/r',
     'https://evil.example/github.com/o/r',
@@ -37,7 +56,7 @@ REFUSED = (
     'https://github.com/o/..',
     'https://github.com/o/r%2Fpull/1',
     'https://github.com/o/r/pull%2F1',
-    'https://github.com/o/r/a/b/c/d/e/f/g',  # seven more segments
+    'https://github.com/o/r/a/b/c/d/e/f/g',
     'https://github.com/o/r\n',
     'https://github.com/o/r/pull/1\r',
     'https://github.com/o/r/ pull',
@@ -79,7 +98,7 @@ class GitHubLink(TestCase):
     def test_the_web_model_uses_the_same_table(self):
         # tests/glance-ci.test.cjs checks safeGithub; keep both tables in step.
         script = (ROOT / 'tests' / 'glance-ci.test.cjs').read_text()
-        for value in ('https://github.com/o/r/pull/12/checks', 'https://github.com.evil.example/o/r', 'https://github.com/o/r%2Fpull'):
+        for value in ('https://github.com/orgs/acme/sso', 'https://github.com.evil.example/o/r', 'https://github.com/o/r%2Fpull'):
             self.assertIn(value, script)
 
 

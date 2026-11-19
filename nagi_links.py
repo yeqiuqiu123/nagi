@@ -32,23 +32,30 @@ def open_thread(value,opener,has_handler=None):
 
 GITHUB_OWNER=re.compile(r'[A-Za-z0-9-]{1,39}',re.ASCII)
 GITHUB_REPO=re.compile(r'[A-Za-z0-9._-]{1,100}',re.ASCII)
-GITHUB_SEGMENT=re.compile(r'[A-Za-z0-9._-]{1,200}',re.ASCII)
+# The only pages the panel links to: a pull request, a repository's Actions page or one
+# run, and its deployments. Ids are numbers. Nothing else under a repository opens.
+GITHUB_ROUTE=re.compile(r'(?:pull/[1-9][0-9]{0,18}|actions(?:/runs/[1-9][0-9]{0,18})?|deployments)',re.ASCII)
+# First segments that are GitHub's own pages, never an account: sign-in, SSO and settings
+# live under these, so they are refused whatever follows.
+GITHUB_RESERVED=frozenset(('orgs','organizations','enterprises','login','logout','session','sessions','settings',
+                           'account','users','apps','marketplace','oauth','join','signup','sso','sponsors','codespaces'))
 
 
 def github_link(value):
-    """A plain https://github.com/<owner>/<repo>[/up to 6 segments] link, or None.
+    """https://github.com/<owner>/<repo>, optionally followed by pull/<n>, actions,
+    actions/runs/<n> or deployments; anything else is None.
 
     The same rule as safeGithub in web/glance-ci.js and SourceLinks.githubLink: no
-    credentials, port, query, fragment, percent sign, `.`/`..` or empty segment."""
+    credentials, port, query, fragment, percent sign, `.`/`..`, empty segment, reserved
+    first segment or route the panel doesn't build."""
     if not isinstance(value,str) or len(value)>2048 or any(ord(c)<33 for c in value):return None
     if any(c in value for c in '%?#\\@'):return None
     prefix='https://github.com/'
     if not value.startswith(prefix):return None
-    parts=value[len(prefix):].split('/')
-    if not 2<=len(parts)<=8:return None
-    if not GITHUB_OWNER.fullmatch(parts[0]) or not GITHUB_REPO.fullmatch(parts[1]):return None
-    if not all(GITHUB_SEGMENT.fullmatch(part) for part in parts[2:]):return None
-    if any(part in ('.','..') for part in parts):return None
+    parts=value[len(prefix):].split('/',2)
+    if len(parts)<2 or not GITHUB_OWNER.fullmatch(parts[0]) or not GITHUB_REPO.fullmatch(parts[1]):return None
+    if parts[0].lower() in GITHUB_RESERVED or parts[1] in ('.','..'):return None
+    if len(parts)==3 and not GITHUB_ROUTE.fullmatch(parts[2]):return None
     parsed=urlsplit(value)
     if (parsed.scheme,parsed.netloc,parsed.query,parsed.fragment)!=('https','github.com','',''):return None
     return prefix+'/'.join(parts)

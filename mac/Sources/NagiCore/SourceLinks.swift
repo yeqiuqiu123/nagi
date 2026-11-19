@@ -70,20 +70,30 @@ public enum SourceLinks {
         value.range(of: pattern, options: .regularExpression) != nil
     }
 
-    /// A port of nagi_links.github_link (and safeGithub in web/glance-ci.js): a plain
-    /// https://github.com/<owner>/<repo> link plus 0 to 6 more segments, returned unchanged.
-    /// No credentials, port, query, fragment, percent sign, `.`/`..` or empty segment.
+    /// GitHub's own first path segments (sign-in, SSO, settings): never an account.
+    private static let githubReserved: Set<String> = [
+        "orgs", "organizations", "enterprises", "login", "logout", "session", "sessions", "settings",
+        "account", "users", "apps", "marketplace", "oauth", "join", "signup", "sso", "sponsors", "codespaces",
+    ]
+
+    /// A port of nagi_links.github_link (and safeGithub in web/glance-ci.js):
+    /// https://github.com/<owner>/<repo>, alone or followed by one of the routes the panel
+    /// links to (pull/<n>, actions, actions/runs/<n>, deployments), returned unchanged.
+    /// No credentials, port, query, fragment, percent sign, `.`/`..`, empty segment,
+    /// reserved first segment or any other route.
     public static func githubLink(_ value: String) -> String? {
         let prefix = "https://github.com/"
         guard value.unicodeScalars.count <= 2048, !value.unicodeScalars.contains(where: { $0.value < 33 }),
               !value.unicodeScalars.contains(where: { "%?#\\@".unicodeScalars.contains($0) }),
               value.hasPrefix(prefix) else { return nil }
-        let parts = value.dropFirst(prefix.count).split(separator: "/", omittingEmptySubsequences: false).map(String.init)
-        guard (2...8).contains(parts.count),
+        let parts = value.dropFirst(prefix.count).split(separator: "/", maxSplits: 2, omittingEmptySubsequences: false).map(String.init)
+        guard parts.count >= 2,
               matches(parts[0], "\\A[A-Za-z0-9-]{1,39}\\z"),
               matches(parts[1], "\\A[A-Za-z0-9._-]{1,100}\\z"),
-              parts.dropFirst(2).allSatisfy({ matches($0, "\\A[A-Za-z0-9._-]{1,200}\\z") }),
-              !parts.contains(where: { $0 == "." || $0 == ".." }) else { return nil }
+              !githubReserved.contains(parts[0].lowercased()),
+              parts[1] != ".", parts[1] != ".." else { return nil }
+        if parts.count == 3,
+           !matches(parts[2], "\\A(?:pull/[1-9][0-9]{0,18}|actions(?:/runs/[1-9][0-9]{0,18})?|deployments)\\z") { return nil }
         return prefix + parts.joined(separator: "/")
     }
 

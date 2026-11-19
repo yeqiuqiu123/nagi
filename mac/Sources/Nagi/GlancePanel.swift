@@ -54,6 +54,9 @@ final class GlancePanel: NSPanel {
     private var retries = 0
     private var outsideMonitor: Any?
     private var keyMonitor: Any?
+    private var activationMonitor: Any?
+    /// The owner's last real click or Return in the panel: what lets a link open outside it.
+    private var activation = ActivationGate()
     private var activationObserver: NSObjectProtocol?
 
     var anchor: (() -> NSRect?)?
@@ -264,11 +267,26 @@ final class GlancePanel: NSPanel {
             }
             return handled ? nil : event
         }
+        // Real input only: AppKit delivers these, a page cannot make them. The navigation
+        // policy asks for one before it lets a GitHub link leave the panel.
+        activationMonitor = NSEvent.addLocalMonitorForEvents(matching: [.leftMouseUp, .keyDown]) { [weak self] event in
+            let real = event.type == .leftMouseUp || (event.type == .keyDown && ActivationGate.activates(keyCode: event.keyCode))
+            guard real else { return event }
+            let stamp = event.timestamp
+            let window = event.windowNumber
+            MainActor.assumeIsolated {
+                guard let self, self.panel.windowNumber == window else { return }
+                self.activation.record(at: stamp)
+            }
+            return event
+        }
     }
 
     private func stopMonitors() {
         if let outsideMonitor { NSEvent.removeMonitor(outsideMonitor) }
         if let keyMonitor { NSEvent.removeMonitor(keyMonitor) }
+        if let activationMonitor { NSEvent.removeMonitor(activationMonitor) }
+        activationMonitor = nil
         if let activationObserver { NSWorkspace.shared.notificationCenter.removeObserver(activationObserver) }
         outsideMonitor = nil
         keyMonitor = nil
@@ -416,10 +434,17 @@ final class GlancePanel: NSPanel {
                 if ThreadOpener.open(url.absoluteString) { hide() }
                 return
             }
-            // A checks, deployment or pull request mark opens its GitHub page in the default browser.
-            if trusted(webView.url, in: page), let link = SourceLinks.githubLink(url.absoluteString), let target = URL(string: link) {
+            // A checks, deployment or pull request mark opens its GitHub page in the default
+            // browser, and only on the owner's own click or Return: "link activated" alone is
+            // true of a click a script made up. The navigation must start in the trusted main
+            // frame, and a real mouse or key event in the panel must have come just before it.
+            if let link = SourceLinks.githubLink(url.absoluteString), let target = URL(string: link) {
                 decisionHandler(.cancel)
-                if NSWorkspace.shared.open(target) { hide() }
+                let source = navigationAction.sourceFrame
+                let fromPanel = trusted(webView.url, in: page) && source?.isMainFrame == true
+                    && trusted(source?.request.url, in: page)
+                let owned = activation.consume(at: ProcessInfo.processInfo.systemUptime)
+                if fromPanel, owned, NSWorkspace.shared.open(target) { hide() }
                 return
             }
         }
