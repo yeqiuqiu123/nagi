@@ -90,3 +90,46 @@ routes with sourceId `github-ci` and this event shape:
 Linux banners open Nagi. The Linux tray displays a failure indicator when any
 current CI row is freshly failed. The reader reports missing gh as not_set_up on
 both platforms.
+
+## Pull requests waiting on the owner
+
+GET /api/sources/v1/ci/pulls → `{version:1,pulls:Outcome}`.
+
+Success data is `{count,rows,omitted}`. Count is the number of returned
+actionable PRs. When omitted is true, present the count as partial. Consider
+non-draft open PRs in watched repositories when their head matches a watched
+branch or the GitHub CLI's signed-in viewer authored them. Reasons in priority
+order are an outstanding personal review request (`review_requested`), a
+changes-requested decision (`changes_requested`), and an approval awaiting
+merge or a mergeable PR with passing checks (`ready_to_merge`). A row has
+`{repo,number,title,url,why,ci,updatedAt}`. CI is the row's CI state string or
+null if unavailable. Titles are short sanitized GitHub text, with a generic
+PR label when unsafe. Only a successful outcome may contribute a count to
+asks-you. The feed shares CI opt-in, polling and closed reasons.
+
+## What finished agents produced
+
+GET /api/sources/v1/ci/ended → `{version:1,ended:Outcome}`.
+
+Success data is `{rows,omitted}`. Each row has `{agentId,repo,number,title,url,
+ci,mergeState,updatedAt}`. Join by agent ID to an Ended row. Merge state is
+`merged|closed|draft|changes_requested|ready_to_merge|open|unknown`. Link the
+latest PR associated with the branch, including a closed or merged PR if
+GitHub still associates it with the branch. A branch without evidence of a
+PR contributes no row. The feed shares CI opt-in, polling and closed reasons.
+
+## Local machine load
+
+GET /api/sources/v1/machine → `{version:1,machine:Outcome}`.
+
+Success data is `{cpuLoadPercent,memoryPressurePercent,gpu}`. CPU is the
+one-minute load average divided by logical core count, as a percentage that
+may exceed 100. Memory is the percentage of memory in use under the platform's
+available-memory calculation. An unavailable individual reading is null.
+GPU is null without a usable local NVIDIA sample, or
+`{utilizationPercent,memoryUsedBytes,memoryTotalBytes}`. With multiple NVIDIA
+GPUs, utilization is the busiest GPU and memory is summed. No device names,
+hostnames or paths are returned. The reader samples about every five seconds.
+If it cannot read any measure, status is unavailable with reason
+`cannot_read_machine`, the attempt time and null data. The same outcome is
+included as `machine` in `nagi status --json`.
