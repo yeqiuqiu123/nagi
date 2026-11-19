@@ -91,7 +91,7 @@
     const keys = { ArrowLeft: -1, ArrowUp: -1, ArrowRight: 1, ArrowDown: 1, Home: 'first', End: 'last' };
     if (!(event.key in keys)) return;
     const group = event.currentTarget;
-    const items = [...group.querySelectorAll('[role="radio"]')];
+    const items = [...group.querySelectorAll('[role="radio"]')].filter((el) => !el.hidden);
     const i = items.indexOf(document.activeElement);
     if (i < 0) return;
     event.preventDefault();
@@ -100,14 +100,21 @@
     items[next].click();
     items[next].focus({ preventScroll: true });
   }
-  // One tab stop per group: the chosen item, or the first when nothing is chosen.
+  // One tab stop per group: the chosen item, or the first shown when nothing is chosen.
   function rove(items, chosen) {
+    const first = items.findIndex((el) => !el.hidden);
     items.forEach((el, i) => {
       const on = i === chosen;
       el.setAttribute('aria-checked', String(on));
-      el.tabIndex = on || (chosen < 0 && i === 0) ? 0 : -1;
+      el.tabIndex = !el.hidden && (on || (chosen < 0 && i === first)) ? 0 : -1;
     });
   }
+  // A preset that draws as the theme's own colour for this role would show the same dot twice
+  // (Terracotta under Claude, Green under Codex): it is left out. Drawn colours are compared, in
+  // both appearances so the list doesn't change when System flips; 0.05 in OKLab is "the same
+  // colour" (the same family measures 0.044 at most, the nearest different preset 0.061).
+  const SAME = 0.05;
+  const asDefault = (drawn, defaults) => ['dark', 'light'].some((m) => T.distance(drawn[m], defaults[m]) < SAME);
 
   // ---- Building the sheet once per open; every change updates it in place ----------------------
   function build() {
@@ -175,7 +182,8 @@
     rove(el.themes, names.indexOf(pending.name));
     el.pics.forEach(([name, pic]) => pic.replaceChildren(picture(name)));
     rove(el.segs, APPEARANCES.findIndex(([v]) => v === pending.appearance));
-    const defaults = T.resolve({ name: pending.name, appearance: pending.appearance, colors: {} })[mode];
+    const plain = T.resolve({ name: pending.name, appearance: pending.appearance, colors: {} });
+    const defaults = plain[mode];
     for (const role of T.ROLES) {
       const row = el.rows[role];
       const open = state.open === role;
@@ -183,9 +191,12 @@
       row.body.hidden = !open;
       paint(row.dot, r[mode][TOKEN[role]]);
       const seed = pending.colors[role] || null;
+      const own = { dark: plain.dark[TOKEN[role]], light: plain.light[TOKEN[role]] };
       row.presets.forEach((button) => {
         const s = button.dataset.seed || null;
-        paint(button.firstChild, s ? T.check(role, s, pending.name).drawn[mode] : defaults[TOKEN[role]]);
+        const drawn = s ? T.check(role, s, pending.name).drawn : own;
+        button.hidden = !!s && s !== seed && asDefault(drawn, own);
+        paint(button.firstChild, drawn[mode]);
       });
       rove(row.presets, row.presets.findIndex((button) => (button.dataset.seed || null) === seed));
       // The field shows what is chosen, unless the owner is typing in it or a refused or

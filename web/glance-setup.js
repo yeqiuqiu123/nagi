@@ -465,12 +465,105 @@
   }
 
   // ---- Settings → Sources --------------------------------------------------------------------
+  // A re-render after a read arrives keeps the keyboard where it was.
+  function rerender() {
+    const el = document.activeElement;
+    renderKeeping(el && sheet.contains(el) && el.id ? el.id : null);
+  }
+
   async function loadSources() {
     const list = await call('', undefined);
     if (!state) return;
     state.list = list.ok ? list.data : null;
     state.listError = list.ok ? null : list.code;
-    render();
+    rerender();
+  }
+
+  // ---- Settings → Sources → GitHub ------------------------------------------------------------
+  // One switch for Nagi's own preference: it reads checks, deployments and pull requests with the
+  // GitHub CLI's existing sign-in, and never signs in to or changes GitHub. A reader without the
+  // feature (404) draws no row at all. Contract: design/ci-contract.md.
+  async function loadGitHub() {
+    const got = await call('/ci/settings', undefined);
+    if (!state) return;
+    if (!got.ok && got.status === 404) { state.gh = null; rerender(); return; }
+    state.gh = got.ok ? { enabled: got.data.enabled === true, outcome: null, triedAt: null }
+      : { enabled: false, failed: true, triedAt: Date.now() };
+    rerender();
+    if (state.gh.enabled) watchGitHub();
+  }
+
+  // What the reader last saw, re-read a few times while its first read is still in flight.
+  async function watchGitHub() {
+    for (let i = 0; i < 8; i++) {
+      if (!state || !state.gh || !state.gh.enabled) return;
+      const got = await call('/ci', undefined);
+      if (!state || !state.gh || !state.gh.enabled) return;
+      state.gh.outcome = got.ok && got.data && got.data.ci ? got.data.ci : null;
+      state.gh.triedAt = Date.now();
+      rerender();
+      const o = state.gh.outcome;
+      if (!(o && o.status === 'unavailable' && o.reason === 'checking')) return;
+      await wait(1500);
+    }
+  }
+
+  function gitHubWords(gh) {
+    if (gh.failed) return "Couldn't check · tried " + M.hm(gh.triedAt);
+    if (!gh.enabled) return null;
+    const o = gh.outcome;
+    if (!o) return gh.triedAt ? "Couldn't check · tried " + M.hm(gh.triedAt) : 'Checking…';
+    const at = (iso) => { const t = Date.parse(iso); return Number.isFinite(t) ? M.hm(t) : null; };
+    if (o.status === 'not_set_up') {
+      if (o.reason === 'gh_missing') return 'The GitHub CLI isn\u2019t installed on this computer.';
+      if (o.reason === 'gh_signed_out') return 'Not signed in. Run gh auth login in a terminal.';
+      return 'Checking…'; // still switching on
+    }
+    if (o.status === 'unavailable') {
+      if (o.reason === 'checking') return 'Checking…';
+      const tried = at(o.attemptedAt) || M.hm(gh.triedAt);
+      return "Couldn't check · tried " + tried;
+    }
+    if (o.status === 'last_known') return at(o.checkedAt) ? 'Last read ' + at(o.checkedAt) : "Couldn't check · tried " + (at(o.attemptedAt) || M.hm(gh.triedAt));
+    const rows = (o.data && o.data.rows) || [];
+    const more = o.data && o.data.omitted ? '+' : '';
+    if (o.status === 'ok' && rows.length) return 'Watching ' + rows.length + more + (rows.length === 1 && !more ? ' branch.' : ' branches.');
+    if (more) return 'Some branches couldn\u2019t be read.';
+    return 'No branches to watch yet.';
+  }
+
+  async function flipGitHub(enabled) {
+    const gh = state.gh;
+    if (!gh || gh.busy) return;
+    gh.busy = true; gh.enabled = enabled; state.ghError = null;
+    if (!enabled) gh.outcome = null;
+    renderKeeping('github-ci');
+    const got = await call('/ci/settings', { enabled });
+    if (!state || state.gh !== gh) return;
+    gh.busy = false;
+    if (got.ok && typeof got.data.enabled === 'boolean') {
+      gh.enabled = got.data.enabled; gh.failed = false; gh.outcome = null; gh.triedAt = null;
+    } else {
+      gh.enabled = !enabled; // the answer is the truth: nothing changed
+      state.ghError = 'Couldn\u2019t change that. Nothing was changed.';
+    }
+    renderKeeping('github-ci');
+    if (got.ok) { host.refresh(); if (gh.enabled) watchGitHub(); }
+  }
+
+  function gitHubRow() {
+    const gh = state.gh;
+    const words = gitHubWords(gh);
+    return h('ul', { class: 'choices github', 'aria-label': 'GitHub' },
+      h('li', { class: 'choice github-row' },
+        h('input', { type: 'checkbox', role: 'switch', id: 'github-ci', checked: gh.enabled, disabled: !!gh.failed,
+          'aria-labelledby': 'github-name', 'aria-describedby': 'github-what' + (words ? ' github-status' : ''),
+          onchange: (event) => flipGitHub(event.target.checked) }),
+        h('span', { class: 'app-tile', 'aria-hidden': 'true', text: 'GH' }),
+        h('div', { class: 'choice-text' },
+          h('span', { class: 'choice-name', id: 'github-name', text: 'GitHub' }),
+          h('span', { class: 'choice-what', id: 'github-what', text: 'Checks, deployments and pull requests on your agents\u2019 branches, read through gh.' }),
+          words && h('span', { class: 'choice-what github-status', id: 'github-status', role: 'status', text: words }))));
   }
 
   function stepSources() {
@@ -498,7 +591,9 @@
     else if (!state.list) body.push(live('Loading…'));
     else if (!rows.length) body.push(h('p', { class: 'help', text: 'Nothing connected yet.' }));
     else body.push(h('ul', { class: 'source-rows', 'aria-label': 'Connected sources' }, rows));
-    if (state.error) body.push(live(errorWords(state.error), 'error'));
+    if (state.gh) body.push(gitHubRow());
+    if (state.ghError) body.push(live(state.ghError, 'error'));
+    else if (state.error) body.push(live(errorWords(state.error), 'error'));
     return frame('Sources', null, body,
       [button('Add a source…', { onclick: () => restart() }), grow(),
         button('Done', { primary: true, 'data-autofocus': !state.confirm, onclick: (e) => close({ instant: e.detail === 0 }) })]);
@@ -569,6 +664,7 @@
     show(options);
     focusFirst(render());
     loadSources();
+    loadGitHub();
     startCatalog();
   }
 
