@@ -99,7 +99,9 @@ One 20 px mark in the header beside the checks ring: **concentric arcs, CPU outs
 |---|---|
 | GitHub is switched off (the default) | Nothing on the glance. Settings → Sources has the switch. |
 | Switched on but `gh` is missing or signed out | A `GH` chip in the rail with `not set up`; its detail says what to do |
-| GitHub couldn't be reached | The header ring is dashed with `?`; the rail says `couldn't check · tried 14:02`, once. No row draws a mark that pretends, and the pull-request group and results strip are absent rather than repeating it |
+| GitHub couldn't be reached | The header ring is dashed with `?`; the rail says `couldn't check · tried 14:02`; and where the pull requests would be, one line says they couldn't be checked, because a queue that is yours must never read as empty when it is unknown. No row draws a mark that pretends, and the results strip stays out rather than say it a third time |
+| The very first read fails | The same: a failure with no earlier reading is kept as a failure, with the time. Only a feed last known to be off or absent stays silent |
+| The GitHub switch couldn't be confirmed | The switch rests in the middle, neither on nor off, with `Couldn't check whether this is on · tried 14:02` |
 | Only the pull-request or results feed failed | That one place says `couldn't check` with the time |
 | One branch couldn't be read | That row's mark alone is the dashed `?` |
 | A reading kept from earlier | The same marks in grey, dated in the rail |

@@ -6,7 +6,7 @@ Fable 5.2, 19 Nov 2026. Adds to `design/v3/project-bar.md`; every floor there st
 
 | Surface | At the bar | Unacceptable |
 |---|---|---|
-| **Built-in themes** | Violet, Graphite and Tide, each with a night and a day; Violet's glance is pixel-for-pixel today's. Every theme passes the v3 contrast floors in both appearances, proven by a test over the palette data | A theme where the rose or yellow wash can't be told from the sheet; glass, blur, gradients |
+| **Built-in themes** | Violet, Graphite and Tide, each with a night and a day; with GitHub off, Violet's glance is pixel-for-pixel the panel on main, except for the load ring when the reader serves machine load (see below). Every theme passes the v3 contrast floors in both appearances, proven by a test over the palette data | A theme where the rose or yellow wash can't be told from the sheet; glass, blur, gradients |
 | **Appearance** | System follows the desktop and changes live; Light and Dark hold | A flash of the wrong theme on open |
 | **Custom palette** | Accent, Claude, Codex, Gemini and T3 can each be set; what is drawn is always readable in the night and day of the chosen theme, whatever was picked | A colour that can be saved and then can't be read; a status colour in the picker |
 | **Guard** | A low-contrast pick is nudged and says so. A provider pick that lands on rose or yellow is refused and says so. A hand-edited settings file gets the same treatment when it is applied | A provider arc that looks like a low limit |
@@ -34,6 +34,16 @@ Fable 5.2, 19 Nov 2026. Adds to `design/v3/project-bar.md`; every floor there st
 3. **A CI model test** over fixtures for every outcome in `design/ci-contract.md`: running, passed, failed, cancelled, none, unavailable, last known, not set up, disabled, omitted, a route that answers 404, and a machine with and without a GPU.
 4. **In a real browser (Playwright WebKit) at 400 px:** every built-in theme in night and day, one custom palette, the Appearance sheet, and the CI states, saved to `design/themes/shots/`. The lead looks at each one.
 5. **`node site/scripts/sync-panel.mjs --check`** passes.
+6. **`node design/themes/harness/parity.mjs`** serves main's own panel beside this branch's on the same fixture and a frozen clock, in four scenes, night and day. With GitHub off and no machine route, no pixel differs from main. With the machine route answering, the load ring appears and every pixel that differs is on the header's top line.
+7. **`design/v3/harness/check.mjs`** also proves two behaviours in the browser: a lost answer to the GitHub switch is read back and shown as unknown when it can't be, and a poll that lands after the switch went off cannot bring pull requests back.
+
+## The load-ring exception
+
+Machine load is its own feature, approved on its own, and does not wait for GitHub to be switched on. A reader that serves `/api/sources/v1/machine` draws the ring beside the gear whatever theme is chosen and whether or not GitHub is on. So "Violet with GitHub off is today's panel" is true of everything except that ring. It takes 26 px of the header's top line; in a header already full of words, they wrap one line sooner than they would have. Nothing below the header changes.
+
+## Links out
+
+A mark may open only these pages, in the browser, on the owner's own click or Return: `https://github.com/<owner>/<repo>`, its `pull/<n>`, `actions`, `actions/runs/<n>` and `deployments`. Ids are numbers. GitHub's own first segments (`orgs`, `login`, `settings`, `sessions`, `enterprises` and the like) are refused whatever follows, so a link can never hand the browser to sign-in or SSO. The same rule is written three times, in `nagi_links.py`, `web/glance-ci.js` and `SourceLinks.swift`, with one table of accepted and refused links in each test suite.
 
 ## Tells and don'ts
 

@@ -56,8 +56,11 @@ const SHOTS = {
   'load-detail': { scene: 'calm', ci: 'mixed', load: 'hot', action: click('[data-key="gauge:load"]') },
   'load-partial': { scene: 'calm', load: 'partial', action: click('[data-key="gauge:load"]') },
   'load-down': { scene: 'calm', load: 'down', action: click('[data-key="gauge:load"]') },
-  // GitHub off draws nothing: the same pixels as the plain Violet shot of the same scene.
-  'ci-off': { scene: 'both', ci: 'off', same: 'violet' },
+  // GitHub off draws nothing. That it is the panel on main, pixel for pixel, is proved by
+  // parity.mjs on a frozen clock; two shots taken minutes apart differ in their times.
+  'ci-off': { scene: 'both', ci: 'off' },
+  // GitHub off and the machine route answering: the load ring is the one new thing.
+  'ci-off-load': { scene: 'both', ci: 'off', load: 'calm' },
   // The fullest header: 2 PRs, asks you, a failed ring, a deployment in flight and a hot machine.
   'ci-busy-header': { scene: 'both', ci: 'mixed', load: 'hot' },
   // Seven PRs waiting (four shown and `+ 3 more`) and fifteen results.
