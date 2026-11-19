@@ -364,6 +364,7 @@
     rate_limited: 'Asked by GitHub to slow down. Nagi will try again.',
     invalid_response: "Its answer couldn't be read.",
     coverage_incomplete: "Some checks couldn't be read.",
+    repo_not_found: "A watched repository couldn't be found on GitHub.",
     branch_unavailable: "A watched branch couldn't be found on GitHub.",
     not_github: "A watched project isn't on GitHub.",
     reader_down: "Nagi's local reader isn't answering.",

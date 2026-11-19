@@ -55,7 +55,7 @@ function strings(value, out = []) {
   return out;
 }
 const REASONS = ['disabled', 'checking', 'coverage_incomplete', 'not_github', 'gh_missing', 'gh_signed_out', 'cannot_reach_github', 'rate_limited',
-  'branch_unavailable', 'invalid_response', 'cannot_read_machine', 'reader_down', 'review_requested', 'changes_requested', 'ready_to_merge', 'in_progress'];
+  'branch_unavailable', 'repo_not_found', 'invalid_response', 'cannot_read_machine', 'reader_down', 'review_requested', 'changes_requested', 'ready_to_merge', 'in_progress'];
 function honest(result) {
   for (const s of strings(result)) {
     for (const r of REASONS) assert.ok(!s.includes(r), 'raw code ' + r + ' in: ' + s);
