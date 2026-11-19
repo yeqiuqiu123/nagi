@@ -96,5 +96,6 @@ How the reader, its owner check and notifications work: [design/reader.md](desig
 ## Licence
 
 [MIT](LICENSE). Bundled fonts and icons keep their own licences: Inter and the Noto 凪
-subset (SIL OFL 1.1, `web/fonts/`), Lucide icon data (ISC, `web/lucide-LICENSE.txt`) and
-T3 Code's theme colours (MIT, `web/T3-THEME-LICENSE.txt`).
+subset (SIL OFL 1.1, `web/fonts/`), Lucide icon data (ISC, `web/lucide-LICENSE.txt`),
+T3 Code's theme colours (MIT, `web/T3-THEME-LICENSE.txt`) and GitHub's reserved route names
+from Mottie/github-reserved-names (MIT, `web/github-reserved-names-LICENSE.txt`).
