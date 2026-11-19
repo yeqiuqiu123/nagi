@@ -111,11 +111,11 @@ test('running with no checks counted yet has no arc fraction; no checks draws no
   honest(r);
 });
 
-test('a branch without a PR links to nothing: the actions URL carries a query and is refused', () => {
+test('a branch without a PR links to its Actions page: the branch filter is a query and is dropped', () => {
   const url = 'https://github.com/' + TP + '/actions?query=branch%3Afeature%2Fx';
   const r = build({ ci: ciFeed([row(['r1'], checks('failed', 3, 1, 2, url), { pr: null })]) });
-  assert.equal(r.byAgent.r1.ci.href, null);
-  assert.equal(r.byAgent.r1.ci.label, 'Checks failed, 2 of 3.');
+  assert.equal(r.byAgent.r1.ci.href, 'https://github.com/' + TP + '/actions');
+  assert.match(r.byAgent.r1.ci.label, /^Checks failed, 2 of 3\./);
 });
 
 test('deployments map to six states; quiet is no mark; the header shows only one in flight, failed or waiting', () => {
