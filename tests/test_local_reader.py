@@ -209,14 +209,14 @@ class LocalOwnerTests(TestCase):
         settings={'stuckMinutes':5,'endedExpiryHours':48}
         self.assertEqual(self.request('/api/settings',method='POST',body=settings,owner=False)[0],401)
         self.assertEqual(self.request('/api/settings',method='POST',body=settings)[0],200)
-        self.assertEqual(json.loads(self.request('/api/settings')[2])['settings'],dict(settings,limitAlertPercent=10))
+        self.assertEqual(json.loads(self.request('/api/settings')[2])['settings'],dict(settings,limitAlertPercent=10,theme={'name':'violet','appearance':'system','colors':{}}))
         self.assertEqual(self.request('/api/settings',method='POST',body={**settings,'stop':True})[0],400)
         self.assertEqual(self.request('/api/notifications/claim',method='POST',body={'id':'a'*64},owner=False)[0],401)
         value=json.loads(self.request('/api/notifications/claim',method='POST',body={'id':'a'*64,'reservation':'x'*43})[2])
         self.assertFalse(value['claimed']);self.assertIsNone(value['event'])
 
     def test_settings_resource_defaults_clamping_and_authenticated_json_boundary(self):
-        expected={'endedExpiryHours':24,'stuckMinutes':15,'limitAlertPercent':10}
+        expected={'endedExpiryHours':24,'stuckMinutes':15,'limitAlertPercent':10,'theme':{'name':'violet','appearance':'system','colors':{}}}
         self.assertEqual(json.loads(self.request('/api/settings')[2]),{'version':2,'settings':expected,'defaults':expected,'warnings':[]})
         submitted={'endedExpiryHours':999,'stuckMinutes':-1}
         for headers in ({'Origin':'http://127.0.0.1:1'},{'Content-Type':'text/plain'},{'X-Progress-Desk':'0'}):
@@ -224,12 +224,13 @@ class LocalOwnerTests(TestCase):
         self.assertEqual(self.request('/api/settings',method='POST',body=submitted,owner=False)[0],401)
         code,_,raw=self.request('/api/settings',method='POST',body=submitted)
         self.assertEqual(code,200);value=json.loads(raw)
-        self.assertEqual(value['settings'],{'endedExpiryHours':168,'stuckMinutes':5,'limitAlertPercent':10});self.assertEqual(value['defaults'],expected)
+        self.assertEqual(value['settings'],{'endedExpiryHours':168,'stuckMinutes':5,'limitAlertPercent':10,'theme':expected['theme']});self.assertEqual(value['defaults'],expected)
         from agents_service import AgentsService
         self.http.service=AgentsService(self.directory)
         self.assertEqual(json.loads(self.request('/api/settings')[2]),value)
         for invalid in ({'stuckMinutes':5},dict(expected,stop=True),dict(expected,stuckMinutes=True),
-                        dict(expected,stuckMinutes=5.5),dict(expected,endedExpiryHours='24'),dict(expected,stuckMinutes=float('nan'))):
+                        dict(expected,stuckMinutes=5.5),dict(expected,endedExpiryHours='24'),dict(expected,stuckMinutes=float('nan')),
+                        dict(expected,theme={'name':'tide','appearance':'dark','colors':{'rose':'#ff7aa5'}})):
             self.assertEqual(self.request('/api/settings',method='POST',body=invalid)[0],400)
         self.assertEqual(json.loads(self.request('/api/settings')[2]),value)
         self.assertEqual((self.directory/'nagi-settings.json').stat().st_mode&0o777,0o600)

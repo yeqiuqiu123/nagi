@@ -11,6 +11,7 @@ const here = path.dirname(fileURLToPath(import.meta.url));
 const web = path.resolve(here, '..', '..', '..', 'web');
 const FILES = { '/glance': 'glance-v2.html', '/nagi-glance.js': 'glance-v2.js', '/nagi-model.js': 'glance-model.js', '/nagi-motion.js': 'glance-motion.js',
   '/nagi-icons.js': 'project-icons.js', '/nagi-setup.js': 'glance-setup.js', '/nagi-sheet.css': 'glance-sheet.css', '/nagi-glance.css': 'glance-v2.css',
+  '/nagi-theme.js': 'glance-theme.js', '/nagi-appearance.js': 'glance-appearance.js', '/nagi-ci.js': 'glance-ci.js',
   '/favicon.svg': 'favicon.svg', '/fonts/inter-opsz.woff2': 'fonts/inter-opsz.woff2', '/fonts/nagi-glyph-serif.woff2': 'fonts/nagi-glyph-serif.woff2' };
 const TYPES = { '.woff2': 'font/woff2', '.js': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8', '.html': 'text/html; charset=utf-8', '.svg': 'image/svg+xml' };
 // The reader's own policy: no inline script or style may run in the panel.

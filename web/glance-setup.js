@@ -465,12 +465,152 @@
   }
 
   // ---- Settings → Sources --------------------------------------------------------------------
+  // A re-render after a read arrives keeps the keyboard where it was.
+  function rerender() {
+    const el = document.activeElement;
+    renderKeeping(el && sheet.contains(el) && el.id ? el.id : null);
+  }
+
   async function loadSources() {
     const list = await call('', undefined);
     if (!state) return;
     state.list = list.ok ? list.data : null;
     state.listError = list.ok ? null : list.code;
-    render();
+    rerender();
+  }
+
+  // ---- Settings → Sources → GitHub ------------------------------------------------------------
+  // One switch for Nagi's own preference: it reads checks, deployments and pull requests with the
+  // GitHub CLI's existing sign-in, and never signs in to or changes GitHub. A reader without the
+  // feature (404) draws no row at all. Contract: design/ci-contract.md.
+  // The preference has a revision: it moves when a change is sent and again when it settles.
+  // A read belongs to the sheet that asked for it and to the revision it started under. One
+  // that comes back to another sheet, or after the preference moved, is out of date and is
+  // dropped: a slow first read must never undo what a later change found to be true.
+  let ghRevision = 0;
+  async function loadGitHub() {
+    const mine = state;
+    for (let tries = 0; mine && tries < 4; tries++) {
+      const revision = ghRevision;
+      const got = await call('/ci/settings', undefined);
+      if (state !== mine) return; // that sheet is closed
+      if (revision !== ghRevision) { if (mine.ghWriting) return; continue; } // the preference moved: ask again
+      if (!got.ok && got.status === 404) { mine.gh = null; rerender(); return; }
+      // A read that failed leaves the preference unknown: never drawn as off.
+      mine.gh = got.ok && typeof got.data.enabled === 'boolean' ? { enabled: got.data.enabled, outcome: null, triedAt: null }
+        : { enabled: false, unknown: true, triedAt: Date.now() };
+      rerender();
+      if (mine.gh.enabled && !mine.gh.unknown) watchGitHub();
+      return;
+    }
+  }
+
+  // What the reader last saw, re-read a few times while its first read is still in flight.
+  async function watchGitHub() {
+    const mine = state; const gh = mine && mine.gh; const revision = ghRevision;
+    const current = () => state === mine && mine.gh === gh && revision === ghRevision && gh.enabled && !gh.unknown;
+    for (let i = 0; i < 8; i++) {
+      if (!gh || !current()) return;
+      const got = await call('/ci', undefined);
+      if (!current()) return;
+      gh.outcome = got.ok && got.data && got.data.ci ? got.data.ci : null;
+      gh.triedAt = Date.now();
+      rerender();
+      const o = gh.outcome;
+      if (!(o && o.status === 'unavailable' && o.reason === 'checking')) return;
+      await wait(1500);
+    }
+  }
+
+  function gitHubWords(gh) {
+    if (gh.unknown) return "Couldn't check whether this is on · tried " + M.hm(gh.triedAt);
+    if (!gh.enabled) return null;
+    const o = gh.outcome;
+    if (!o) return gh.triedAt ? "Couldn't check · tried " + M.hm(gh.triedAt) : 'Checking…';
+    const at = (iso) => { const t = Date.parse(iso); return Number.isFinite(t) ? M.hm(t) : null; };
+    if (o.status === 'not_set_up') {
+      if (o.reason === 'gh_missing') return 'The GitHub CLI isn\u2019t installed on this computer.';
+      if (o.reason === 'gh_signed_out') return 'Not signed in. Run gh auth login in a terminal.';
+      return 'Checking…'; // still switching on
+    }
+    if (o.status === 'unavailable') {
+      if (o.reason === 'checking') return 'Checking…';
+      const tried = at(o.attemptedAt) || M.hm(gh.triedAt);
+      return "Couldn't check · tried " + tried;
+    }
+    if (o.status === 'last_known') return at(o.checkedAt) ? 'Last read ' + at(o.checkedAt) : "Couldn't check · tried " + (at(o.attemptedAt) || M.hm(gh.triedAt));
+    const rows = (o.data && o.data.rows) || [];
+    const more = o.data && o.data.omitted ? '+' : '';
+    if (o.status === 'ok' && rows.length) return 'Watching ' + rows.length + more + (rows.length === 1 && !more ? ' branch.' : ' branches.');
+    if (more) return 'Some branches couldn\u2019t be read.';
+    return 'No branches to watch yet.';
+  }
+
+  async function flipGitHub(enabled) {
+    const mine = state; const gh = mine.gh; const panel = host;
+    if (!gh || gh.busy) return;
+    const before = gh.unknown ? null : gh.enabled;
+    ghRevision++; mine.ghWriting = true;
+    gh.busy = true; gh.enabled = enabled; gh.unknown = false; mine.ghError = null;
+    if (!enabled) gh.outcome = null;
+    renderKeeping('github-ci');
+    // From here the change runs to its end whether or not the sheet stays open: what the
+    // reader confirms is applied to the panel either way, and only the sheet's own drawing
+    // depends on the sheet still being there.
+    let got = await call('/ci/settings', { enabled });
+    let settled = got.ok && typeof got.data.enabled === 'boolean' ? got.data.enabled : null;
+    // The reader answered and refused (a 4xx): nothing was written, and the sheet may say so.
+    const refused = !got.ok && got.status >= 400 && got.status < 500;
+    let error = null;
+    if (settled === null && !refused) {
+      // No answer, or one that can't be read: the write may or may not have landed. Ask.
+      got = await call('/ci/settings', undefined);
+      settled = got.ok && typeof got.data.enabled === 'boolean' ? got.data.enabled : null;
+      if (settled !== null && settled !== enabled) error = 'Couldn\u2019t change that. GitHub is still ' + (settled ? 'on.' : 'off.');
+    }
+    ghRevision++; mine.ghWriting = false; gh.busy = false;
+    if (settled !== null) {
+      gh.enabled = settled; gh.outcome = null; gh.triedAt = null;
+    } else if (refused && before !== null) {
+      gh.enabled = before;
+      error = 'Couldn\u2019t change that. Nothing was changed.';
+    } else {
+      // Still no answer: the preference is unknown, and is shown as unknown.
+      gh.enabled = false; gh.unknown = true; gh.triedAt = Date.now();
+      error = 'Couldn\u2019t reach Nagi\u2019s reader to change that.';
+    }
+    // The glance drops what it held from GitHub the moment the preference is off or unknown,
+    // and does so even when the sheet was closed before the answer came.
+    if (panel && panel.githubChanged) panel.githubChanged(gh.unknown ? null : gh.enabled); else if (panel) panel.refresh();
+    if (state === mine) {
+      mine.ghError = error;
+      renderKeeping('github-ci');
+      if (!gh.unknown && gh.enabled) watchGitHub();
+    } else if (state && state.step === 'sources') {
+      loadGitHub(); // another Sources sheet is open now: it reads what is true
+    }
+  }
+
+  // Unknown is its own state: the knob rests in the middle, and flipping it asks the reader again.
+  function gitHubSwitch(gh, words) {
+    const input = h('input', { type: 'checkbox', role: 'switch', id: 'github-ci', checked: gh.enabled && !gh.unknown,
+      'aria-labelledby': 'github-name', 'aria-describedby': 'github-what' + (words ? ' github-status' : ''),
+      onchange: (event) => flipGitHub(event.target.checked) });
+    input.indeterminate = !!gh.unknown;
+    return input;
+  }
+
+  function gitHubRow() {
+    const gh = state.gh;
+    const words = gitHubWords(gh);
+    return h('ul', { class: 'choices github', 'aria-label': 'GitHub' },
+      h('li', { class: 'choice github-row' },
+        gitHubSwitch(gh, words),
+        h('span', { class: 'app-tile', 'aria-hidden': 'true', text: 'GH' }),
+        h('div', { class: 'choice-text' },
+          h('span', { class: 'choice-name', id: 'github-name', text: 'GitHub' }),
+          h('span', { class: 'choice-what', id: 'github-what', text: 'Checks, deployments and pull requests on your agents\u2019 branches, read through gh.' }),
+          words && h('span', { class: 'choice-what github-status', id: 'github-status', role: 'status', text: words }))));
   }
 
   function stepSources() {
@@ -498,7 +638,9 @@
     else if (!state.list) body.push(live('Loading…'));
     else if (!rows.length) body.push(h('p', { class: 'help', text: 'Nothing connected yet.' }));
     else body.push(h('ul', { class: 'source-rows', 'aria-label': 'Connected sources' }, rows));
-    if (state.error) body.push(live(errorWords(state.error), 'error'));
+    if (state.gh) body.push(gitHubRow());
+    if (state.ghError) body.push(live(state.ghError, 'error'));
+    else if (state.error) body.push(live(errorWords(state.error), 'error'));
     return frame('Sources', null, body,
       [button('Add a source…', { onclick: () => restart() }), grow(),
         button('Done', { primary: true, 'data-autofocus': !state.confirm, onclick: (e) => close({ instant: e.detail === 0 }) })]);
@@ -569,6 +711,7 @@
     show(options);
     focusFirst(render());
     loadSources();
+    loadGitHub();
     startCatalog();
   }
 

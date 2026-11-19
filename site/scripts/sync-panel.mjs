@@ -1,6 +1,7 @@
 // Copies the real glance panel from web/ into site/panel/ so the site's hero runs the
 // shipped renderer, not a redraw. Only mechanical changes are made:
-//   - absolute asset URLs become relative, so the site works under any base path;
+//   - absolute asset URLs become relative, so the site works under any base path (the
+//     Appearance sheet's lazily loaded script too);
 //   - the page loads demo.js (a fictional fixture and a fetch shim) instead of nagi-auth.js.
 // Run from the repository root:  node site/scripts/sync-panel.mjs [--check]
 import fs from 'node:fs';
@@ -22,7 +23,11 @@ const FILES = [
   ['glance-model.js', 'nagi-model.js'],
   ['glance-motion.js', 'nagi-motion.js'],
   ['project-icons.js', 'nagi-icons.js'],
-  ['glance-v2.js', 'nagi-glance.js'],
+  // A lazily loaded script must also resolve under a sub-path. Setup isn't copied: the demo hides Sources.
+  ['glance-v2.js', 'nagi-glance.js', (js) => js.replace("script.src = '/nagi-appearance.js'", "script.src = 'nagi-appearance.js'")],
+  ['glance-theme.js', 'nagi-theme.js'],
+  ['glance-appearance.js', 'nagi-appearance.js'],
+  ['glance-ci.js', 'nagi-ci.js'],
   ['fonts/inter-opsz.woff2', 'fonts/inter-opsz.woff2'],
   ['fonts/inter-opsz-LICENSE.txt', 'fonts/inter-opsz-LICENSE.txt'],
   ['fonts/nagi-glyph-serif.woff2', 'fonts/nagi-glyph-serif.woff2'],

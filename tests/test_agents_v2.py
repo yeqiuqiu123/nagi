@@ -260,14 +260,14 @@ class AgentsV2(TestCase):
         for submitted,expected in [({'endedExpiryHours':-8,'stuckMinutes':0},{'endedExpiryHours':1,'stuckMinutes':5}),
                                    ({'endedExpiryHours':999,'stuckMinutes':999},{'endedExpiryHours':168,'stuckMinutes':120}),
                                    ({'endedExpiryHours':48,'stuckMinutes':20},{'endedExpiryHours':48,'stuckMinutes':20})]:
-            expected=dict(expected,limitAlertPercent=10)
+            expected=dict(expected,limitAlertPercent=10,theme=DEFAULTS['theme'])
             self.assertEqual(self.service.save_settings(submitted),expected)
             self.assertEqual(self.new().settings(),expected)
             self.assertEqual(json.loads((self.directory/'nagi-settings.json').read_text()),expected)
         for submitted in ({'stuckMinutes':15},dict(DEFAULTS,unknown=1),dict(DEFAULTS,stuckMinutes=True),
                           dict(DEFAULTS,endedExpiryHours='24'),dict(DEFAULTS,stuckMinutes=None),dict(DEFAULTS,stuckMinutes=5.5)):
             with self.assertRaises(ValueError):self.service.save_settings(submitted)
-        self.assertEqual(self.new().settings(),{'endedExpiryHours':48,'stuckMinutes':20,'limitAlertPercent':10})
+        self.assertEqual(self.new().settings(),{'endedExpiryHours':48,'stuckMinutes':20,'limitAlertPercent':10,'theme':DEFAULTS['theme']})
         self.assertEqual(self.service.settings_resource()['defaults'],DEFAULTS)
         self.assertEqual((self.directory/'nagi-settings.json').stat().st_mode&0o777,0o600)
 
@@ -275,7 +275,7 @@ class AgentsV2(TestCase):
         path=self.directory/'nagi-settings.json'
         original=json.dumps({'stuckAfterSeconds':901,'endedWithinHours':48})
         path.write_text(original);path.chmod(0o600)
-        self.assertEqual(self.service.settings(),{'stuckMinutes':16,'endedExpiryHours':48,'limitAlertPercent':10})
+        self.assertEqual(self.service.settings(),{'stuckMinutes':16,'endedExpiryHours':48,'limitAlertPercent':10,'theme':DEFAULTS['theme']})
         self.assertEqual(path.read_text(),original)
         self.service.save_settings(self.service.settings());self.assertEqual(set(json.loads(path.read_text())),set(DEFAULTS))
         with self.assertRaises(ValueError):self.service.save_settings({'stuckAfterSeconds':900,'endedWithinHours':24})

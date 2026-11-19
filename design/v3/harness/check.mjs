@@ -115,5 +115,156 @@ await check('The Mac density (0.85) keeps every dial on one row and nothing clip
   await context.close();
 });
 
+await check('A checks mark is a Tab stop right after its row, labelled, and links to GitHub', async () => {
+  const { page, context, errors } = await open('calm&ci=mixed&load=gpu');
+  await page.focus('#past .item.has-marks > .row');
+  await page.keyboard.press('Tab');
+  const mark = await page.evaluate(() => { const el = document.activeElement; const s = getComputedStyle(el);
+    return { mk: el.classList.contains('mk'), label: el.getAttribute('aria-label') || '', href: el.getAttribute('href') || '', ring: s.outlineStyle !== 'none' && parseFloat(s.outlineWidth) >= 2,
+      size: [el.offsetWidth, el.offsetHeight] }; });
+  assert.ok(mark.mk, 'focus is not on a mark');
+  assert.match(mark.label, /^Checks /);
+  assert.match(mark.href, /^https:\/\/github\.com\//);
+  assert.ok(mark.ring, 'no focus ring');
+  assert.ok(mark.size[0] >= 24 && mark.size[1] >= 28, 'target ' + mark.size.join('x'));
+  // The load ring opens its numbers; Escape closes them before it closes the panel.
+  await page.click('[data-key="gauge:load"]');
+  assert.equal(await page.evaluate(() => document.getElementById('load-detail').hidden), false);
+  await page.keyboard.press('Escape');
+  assert.equal(await page.evaluate(() => document.getElementById('load-detail').hidden), true);
+  assert.equal(await page.evaluate(() => window.__nagi.closed), false);
+  assert.deepEqual(errors, []);
+  await context.close();
+});
+
+// The page's fetch is the fixture's; these wrap it to lose or delay one answer.
+const openSources = async (page) => { await page.click('#gear'); await page.click('#manage-sources'); await page.waitForSelector('#github-ci'); await page.waitForTimeout(300); };
+const switchState = (page) => page.evaluate(() => { const el = document.getElementById('github-ci'); const status = document.getElementById('github-status');
+  return { checked: el.checked, unknown: el.indeterminate, status: status ? status.textContent : '', error: [...document.querySelectorAll('.setup-sheet [role="alert"], .setup-error')].map((e) => e.textContent).join(' ') }; });
+
+await check('A lost answer to the GitHub switch is read back; with no answer at all it shows as unknown, never "nothing was changed"', async () => {
+  // The write lands but its answer is lost: the reader is asked, and the switch shows what is true.
+  const lost = await open('multi&ci=off');
+  await openSources(lost.page);
+  await lost.page.evaluate(() => { const real = window.fetch; window.fetch = async (url, init) => { const answer = await real(url, init);
+    if (String(url).endsWith('/ci/settings') && init && init.method === 'POST') throw new TypeError('lost'); return answer; }; });
+  await lost.page.click('#github-ci');
+  await lost.page.waitForTimeout(600);
+  let got = await switchState(lost.page);
+  assert.equal(got.checked, true, 'the switch must show the write that landed');
+  assert.equal(got.unknown, false);
+  assert.ok(!/Nothing was changed/.test(got.error), got.error);
+  await lost.context.close();
+  // Neither the write nor the read is answered: unknown, with the time it tried.
+  const dark = await open('multi&ci=off');
+  await openSources(dark.page);
+  await dark.page.evaluate(() => { const real = window.fetch; window.fetch = async (url, init) => { if (String(url).endsWith('/ci/settings')) throw new TypeError('down'); return real(url, init); }; });
+  await dark.page.click('#github-ci');
+  await dark.page.waitForTimeout(600);
+  got = await switchState(dark.page);
+  assert.equal(got.unknown, true, 'an unanswered change must show as unknown');
+  assert.match(got.status, /^Couldn't check whether this is on · tried \d\d:\d\d$/);
+  assert.ok(!/Nothing was changed/.test(got.error), got.error);
+  // A refusal the reader did answer is the one case that may say nothing changed.
+  const refused = await open('multi&ci=off');
+  await openSources(refused.page);
+  await refused.page.evaluate(() => { const real = window.fetch; window.fetch = async (url, init) => (String(url).endsWith('/ci/settings') && init && init.method === 'POST'
+    ? new Response(JSON.stringify({ error: 'Invalid request' }), { status: 400, headers: { 'Content-Type': 'application/json' } }) : real(url, init)); });
+  await refused.page.click('#github-ci');
+  await refused.page.waitForTimeout(600);
+  got = await switchState(refused.page);
+  assert.equal(got.checked, false);
+  assert.match(got.error, /Nothing was changed/);
+  await dark.context.close(); await refused.context.close();
+});
+
+await check('Switching GitHub off clears pull requests at once, and a poll that lands late cannot bring them back', async () => {
+  const { page, context, errors } = await open('calm&ci=mixed');
+  await page.waitForSelector('#past .project.prs');
+  // One poll is already in flight and slow: its GitHub answers arrive after the switch is off.
+  await page.evaluate(() => { const real = window.fetch; let slow = true; window.fetch = async (url, init) => { const answer = await real(url, init);
+    if (slow && /\/ci(\/pulls|\/ended)?$/.test(String(url)) && !(init && init.method === 'POST')) await new Promise((resolve) => setTimeout(resolve, 1500)); return answer; };
+    window.NagiGlance.refresh(); setTimeout(() => { slow = false; }, 50); });
+  await page.waitForTimeout(120);
+  await openSources(page);
+  await page.click('#github-ci');
+  await page.waitForTimeout(400);
+  const held = () => page.evaluate(() => ({ prs: document.querySelectorAll('#past .project.prs, #past .row.pr').length, flag: [...document.querySelectorAll('#flags .flag')].some((f) => /PR/.test(f.textContent)),
+    marks: document.querySelectorAll('#past .mk, #ended .results').length, ring: !!document.querySelector('[data-key="gauge:ci"]') }));
+  assert.deepEqual(await held(), { prs: 0, flag: false, marks: 0, ring: false }, 'cleared when the switch went off');
+  await page.waitForTimeout(2200); // the slow poll has landed by now
+  assert.deepEqual(await held(), { prs: 0, flag: false, marks: 0, ring: false }, 'a late poll must not restore them');
+  assert.deepEqual(errors, []);
+  await context.close();
+});
+
+// ---- Review round 2: each of the reviewer's scenarios, reproduced -------------------------
+const sourcesButton = async (page) => { await page.click('#gear'); await page.click('#manage-sources'); };
+const glanceHolds = (page) => page.evaluate(() => ({ prs: document.querySelectorAll('#past .project.prs, #past .row.pr').length, flag: [...document.querySelectorAll('#flags .flag')].some((f) => /PR/.test(f.textContent)),
+  marks: document.querySelectorAll('#past .mk, #ended .results').length, ring: !!document.querySelector('[data-key="gauge:ci"]') }));
+
+await check('A slow first read of the GitHub preference cannot undo what a later sheet found to be true', async () => {
+  const { page, context, errors } = await open('multi&ci=off');
+  // The first read of the preference is answered (off) but held back; a save's answer is lost.
+  await page.evaluate(() => { const real = window.fetch; let reads = 0; window.fetch = async (url, init) => {
+    const preference = String(url).endsWith('/ci/settings'); const post = !!(init && init.method === 'POST');
+    if (preference && !post && ++reads === 1) { const answer = await real(url, init); await new Promise((resolve) => { window.__first = resolve; }); return answer; }
+    if (preference && post) { await real(url, init); throw new TypeError('lost'); }
+    return real(url, init); }; });
+  await sourcesButton(page);               // open Sources: its read is pending
+  await page.waitForTimeout(200);
+  await page.locator('.setup-sheet button', { hasText: /^Done$/ }).click(); // close it while the read is pending
+  await page.waitForFunction(() => document.getElementById('setup-layer').hidden);
+  await page.waitForTimeout(150);
+  await sourcesButton(page);               // reopen
+  await page.waitForSelector('#github-ci');
+  await page.waitForTimeout(200);
+  await page.click('#github-ci');          // enable; the reply is lost; the readback says on
+  await page.waitForTimeout(500);
+  assert.deepEqual(await page.evaluate(() => { const el = document.getElementById('github-ci'); return [el.checked, el.indeterminate]; }), [true, false], 'the readback');
+  await page.evaluate(() => window.__first()); // the first sheet's read arrives now, saying off
+  await page.waitForTimeout(500);
+  assert.deepEqual(await page.evaluate(() => { const el = document.getElementById('github-ci'); return [el.checked, el.indeterminate]; }), [true, false], 'a stale read flipped the switch');
+  assert.deepEqual(errors, []);
+  await context.close();
+});
+
+await check('Closing Sources before an opt-out settles still clears pull requests once the reader confirms it', async () => {
+  const { page, context, errors } = await open('calm&ci=mixed');
+  await page.waitForSelector('#past .project.prs');
+  await sourcesButton(page);
+  await page.waitForSelector('#github-ci');
+  await page.waitForTimeout(250);
+  // The save takes a while to reach the reader.
+  await page.evaluate(() => { const real = window.fetch; window.fetch = async (url, init) => { if (String(url).endsWith('/ci/settings') && init && init.method === 'POST') await new Promise((resolve) => setTimeout(resolve, 700)); return real(url, init); }; });
+  await page.click('#github-ci');          // switch GitHub off
+  await page.locator('.setup-sheet button', { hasText: /^Done$/ }).click(); // and close the sheet before the save settles
+  await page.waitForFunction(() => document.getElementById('setup-layer').hidden);
+  await page.waitForTimeout(150);
+  assert.ok((await glanceHolds(page)).prs > 0, 'the save has not landed yet');
+  await page.waitForTimeout(1300);         // the reader has confirmed enabled:false by now
+  assert.deepEqual(await glanceHolds(page), { prs: 0, flag: false, marks: 0, ring: false }, 'pull request titles were left on screen');
+  assert.deepEqual(errors, []);
+  await context.close();
+});
+
+await check('A pull-request read that failed says the time it failed, not the time another feed let the panel draw', async () => {
+  // The first pull-request read gets no answer; the machine read is kept waiting.
+  const { page, context, errors } = await open('calm&ci=mixed&load=calm&fail=pulls&hold=machine');
+  await page.waitForTimeout(400);
+  const failed = await page.evaluate(() => Date.now());
+  // Two minutes pass before the machine read lets the feeds land.
+  await page.evaluate(() => { const real = Date.now.bind(Date); Date.now = () => real() + 2 * 60000; });
+  await page.evaluate(() => window.__nagi.release());
+  await page.waitForSelector('#past .prs-say');
+  await page.waitForTimeout(200);
+  const said = await page.evaluate(() => document.querySelector('#past .prs-say').textContent);
+  const hm = (t) => page.evaluate((ms) => window.NagiCI.hm(ms), t);
+  assert.notEqual(await hm(failed), await hm(failed + 2 * 60000));
+  assert.equal(said, "Pull requests: couldn't check · tried " + await hm(failed));
+  assert.deepEqual(errors, []);
+  await context.close();
+});
+
 await browser.close();
 console.log(results.join('\n'));
