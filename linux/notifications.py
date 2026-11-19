@@ -48,8 +48,8 @@ def glance_page(uri):
     return uri == GLANCE_URI or uri in {GLANCE_URI+'#'+section for section in SECTIONS}
 
 def glance_destination(uri):
-    from nagi_links import thread_links
-    try:return bool(glance_page(uri) or uri in {DASHBOARD_URI,*{DASHBOARD_URI+'#'+section for section in SECTIONS}} or thread_links(uri))
+    from nagi_links import thread_links,github_link
+    try:return bool(glance_page(uri) or uri in {DASHBOARD_URI,*{DASHBOARD_URI+'#'+section for section in SECTIONS}} or thread_links(uri) or github_link(uri))
     except (ValueError,UnicodeError):return False
 
 
@@ -274,10 +274,10 @@ def run(port=47831, *, preview=False):
                         from owner_auth import launch_url
                         if url.startswith(ORIGIN + '/'):
                             url = launch_url(ORIGIN, url[len(ORIGIN):].split('#')[0])
-                        from nagi_links import open_thread
+                        from nagi_links import open_link
                         native=lambda target:Gio.AppInfo.launch_default_for_uri(target,None)
                         if not url.startswith(ORIGIN+'/'):
-                            return open_thread(url,native,lambda scheme:Gio.AppInfo.get_default_for_uri_scheme(scheme) is not None)
+                            return open_link(url,native,lambda scheme:Gio.AppInfo.get_default_for_uri_scheme(scheme) is not None)
                         native(url)
                         return True
                     opened = (gesture and glance_page(web.get_uri())

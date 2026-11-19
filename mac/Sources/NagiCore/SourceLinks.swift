@@ -65,4 +65,32 @@ public enum SourceLinks {
         if hasDesktopHandler(desktop), open(desktop) { return true }
         return open(web)
     }
+
+    private static func matches(_ value: String, _ pattern: String) -> Bool {
+        value.range(of: pattern, options: .regularExpression) != nil
+    }
+
+    /// A port of nagi_links.github_link (and safeGithub in web/glance-ci.js): a plain
+    /// https://github.com/<owner>/<repo> link plus 0 to 6 more segments, returned unchanged.
+    /// No credentials, port, query, fragment, percent sign, `.`/`..` or empty segment.
+    public static func githubLink(_ value: String) -> String? {
+        let prefix = "https://github.com/"
+        guard value.unicodeScalars.count <= 2048, !value.unicodeScalars.contains(where: { $0.value < 33 }),
+              !value.unicodeScalars.contains(where: { "%?#\\@".unicodeScalars.contains($0) }),
+              value.hasPrefix(prefix) else { return nil }
+        let parts = value.dropFirst(prefix.count).split(separator: "/", omittingEmptySubsequences: false).map(String.init)
+        guard (2...8).contains(parts.count),
+              matches(parts[0], "\\A[A-Za-z0-9-]{1,39}\\z"),
+              matches(parts[1], "\\A[A-Za-z0-9._-]{1,100}\\z"),
+              parts.dropFirst(2).allSatisfy({ matches($0, "\\A[A-Za-z0-9._-]{1,200}\\z") }),
+              !parts.contains(where: { $0 == "." || $0 == ".." }) else { return nil }
+        return prefix + parts.joined(separator: "/")
+    }
+
+    /// A thread link as openThread does, else a GitHub link in the browser (nagi_links.open_link).
+    public static func openLink(_ value: String, hasDesktopHandler: (URL) -> Bool, open: (URL) -> Bool) -> Bool {
+        if openThread(value, hasDesktopHandler: hasDesktopHandler, open: open) { return true }
+        guard let link = githubLink(value), let url = URL(string: link) else { return false }
+        return open(url)
+    }
 }

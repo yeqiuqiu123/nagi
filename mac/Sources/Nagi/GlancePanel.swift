@@ -409,10 +409,17 @@ final class GlancePanel: NSPanel {
             return
         }
         if navigationAction.navigationType == .linkActivated {
-            // Rows open generated T3 thread links outside the panel; nothing else leaves it.
+            // Rows open generated T3 thread links outside the panel, and CI marks plain GitHub
+            // links; nothing else leaves it.
             if trusted(webView.url, in: page), SourceLinks.threadLinks(url.absoluteString) != nil {
                 decisionHandler(.cancel)
                 if ThreadOpener.open(url.absoluteString) { hide() }
+                return
+            }
+            // A checks, deployment or pull request mark opens its GitHub page in the default browser.
+            if trusted(webView.url, in: page), let link = SourceLinks.githubLink(url.absoluteString), let target = URL(string: link) {
+                decisionHandler(.cancel)
+                if NSWorkspace.shared.open(target) { hide() }
                 return
             }
         }

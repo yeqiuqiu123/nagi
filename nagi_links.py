@@ -28,3 +28,37 @@ def open_thread(value,opener,has_handler=None):
         except Exception:pass
     try:return opener(links['web']) is not False
     except Exception:return False
+
+
+GITHUB_OWNER=re.compile(r'[A-Za-z0-9-]{1,39}',re.ASCII)
+GITHUB_REPO=re.compile(r'[A-Za-z0-9._-]{1,100}',re.ASCII)
+GITHUB_SEGMENT=re.compile(r'[A-Za-z0-9._-]{1,200}',re.ASCII)
+
+
+def github_link(value):
+    """A plain https://github.com/<owner>/<repo>[/up to 6 segments] link, or None.
+
+    The same rule as safeGithub in web/glance-ci.js and SourceLinks.githubLink: no
+    credentials, port, query, fragment, percent sign, `.`/`..` or empty segment."""
+    if not isinstance(value,str) or len(value)>2048 or any(ord(c)<33 for c in value):return None
+    if any(c in value for c in '%?#\\@'):return None
+    prefix='https://github.com/'
+    if not value.startswith(prefix):return None
+    parts=value[len(prefix):].split('/')
+    if not 2<=len(parts)<=8:return None
+    if not GITHUB_OWNER.fullmatch(parts[0]) or not GITHUB_REPO.fullmatch(parts[1]):return None
+    if not all(GITHUB_SEGMENT.fullmatch(part) for part in parts[2:]):return None
+    if any(part in ('.','..') for part in parts):return None
+    parsed=urlsplit(value)
+    if (parsed.scheme,parsed.netloc,parsed.query,parsed.fragment)!=('https','github.com','',''):return None
+    return prefix+'/'.join(parts)
+
+
+def open_link(value,opener,has_handler=None):
+    """A T3 thread link (desktop first, then web), else a GitHub link in the browser."""
+    if open_thread(value,opener,has_handler):return True
+    try:link=github_link(value)
+    except (ValueError,UnicodeError):return False
+    if not link:return False
+    try:return opener(link) is not False
+    except Exception:return False

@@ -156,8 +156,8 @@ def open_panel_external(uri, user_gesture, source_uri, opener):
     """
     if not user_gesture or not allowed_navigation(source_uri):
         return False
-    from nagi_links import open_thread
-    if open_thread(uri, opener): return True
+    from nagi_links import open_link
+    if open_link(uri, opener): return True
     if uri == ORIGIN + '/overview':
         from owner_auth import launch_url
         opener(launch_url(ORIGIN))
