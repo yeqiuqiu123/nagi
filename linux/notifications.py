@@ -29,9 +29,10 @@ TRAY_GLYPH = '#ffffff'  # GNOME's top bar is dark in both appearances
 EMBED_WAIT_MS = 2500  # how long a tray icon may take to be embedded before the indicator takes over
 
 
-def tray_glyph_svg(color=TRAY_GLYPH):
+def tray_glyph_svg(color=TRAY_GLYPH, *, ci_failed=False):
     """The 凪 glyph for a tray that draws the app's own pixels (no symbolic recolouring)."""
-    svg = (Path(ICON_DIR) / 'nagi-symbolic.svg').read_text()
+    name = 'nagi-ci-failed.svg' if ci_failed else 'nagi-symbolic.svg'
+    svg = (Path(ICON_DIR) / name).read_text()
     if not re.fullmatch(r'#[0-9a-fA-F]{6}', color):
         raise ValueError('colour must be #rrggbb')
     return svg.replace('fill="#bebebe"', f'fill="{color}"')
@@ -128,7 +129,7 @@ def run(port=47831, *, preview=False):
     gi.require_version('WebKit2', '4.1')
     gi.require_version('AyatanaAppIndicator3', '0.1')
     from gi.repository import Gtk, Gdk, GdkPixbuf, Gio, GLib, WebKit2, AyatanaAppIndicator3
-    from tray import sources_tooltip, read_state, POLL_SECONDS
+    from tray import sources_tooltip, read_state, read_ci_failed, POLL_SECONDS
 
     guard = InstanceLock()
     if not preview:
@@ -345,7 +346,7 @@ def run(port=47831, *, preview=False):
             menu.append(item)
             items.append(item)
         menu.show_all()
-        tray = {'icon': None, 'indicator': None, 'title': 'Nagi'}
+        tray = {'icon': None, 'indicator': None, 'title': 'Nagi', 'ci_failed': False}
 
         def indicator_shown(on):
             # Created once, then only shown or hidden, so there is never a second item.
@@ -354,7 +355,8 @@ def run(port=47831, *, preview=False):
                     return
                 # Middle click toggles the panel. GNOME's AppIndicator extension opens this menu
                 # on a left click (it ignores ItemIsMenu), so `Open Nagi` is its first item.
-                indicator = AyatanaAppIndicator3.Indicator.new_with_path('nagi-preview' if preview else 'company-desk', 'nagi-symbolic',
+                indicator = AyatanaAppIndicator3.Indicator.new_with_path('nagi-preview' if preview else 'company-desk',
+                    'nagi-ci-failed' if tray['ci_failed'] else 'nagi-symbolic',
                     AyatanaAppIndicator3.IndicatorCategory.APPLICATION_STATUS, ICON_DIR)
                 indicator.set_title(tray['title'])
                 indicator.set_menu(menu)
@@ -365,7 +367,7 @@ def run(port=47831, *, preview=False):
         def glyph(size):
             loader = GdkPixbuf.PixbufLoader.new_with_type('svg')
             loader.set_size(size, size)
-            loader.write(tray_glyph_svg().encode())
+            loader.write(tray_glyph_svg(ci_failed=tray['ci_failed']).encode())
             loader.close()
             return loader.get_pixbuf()
 
@@ -418,11 +420,25 @@ def run(port=47831, *, preview=False):
                 tray['indicator'].set_label('', '')
                 tray['indicator'].set_title(text)
 
-        def update_tray(envelope):
-            set_tray_title(sources_tooltip(envelope))
+        def set_ci_icon(failed):
+            if tray['ci_failed'] == failed:
+                return
+            tray['ci_failed'] = failed
+            if tray['icon'] is not None:
+                try:
+                    tray['icon'].set_from_pixbuf(glyph(max(16, tray['icon'].get_size())))
+                except (GLib.Error, OSError, ValueError):
+                    pass
+            if tray['indicator'] is not None:
+                tray['indicator'].set_icon_full('nagi-ci-failed' if failed else 'nagi-symbolic', 'CI failed' if failed else 'Nagi')
+
+        def update_tray(envelope, failed):
+            set_ci_icon(failed)
+            set_tray_title(sources_tooltip(envelope)+(' · CI failed' if failed else ''))
             return False
 
         def reader_down():
+            set_ci_icon(False)
             set_tray_title("Nagi · can't reach its local reader")
             return False
 
@@ -433,7 +449,11 @@ def run(port=47831, *, preview=False):
                 except Exception:
                     GLib.idle_add(reader_down)
                 else:
-                    GLib.idle_add(update_tray, envelope)
+                    try:
+                        failed = read_ci_failed(ORIGIN)
+                    except (OSError, ValueError, KeyError, TypeError):
+                        failed = False
+                    GLib.idle_add(update_tray, envelope, failed)
             threading.Thread(target=work, daemon=True).start()
             return True
 

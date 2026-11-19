@@ -25,8 +25,10 @@ TYPES={'.woff2':'font/woff2','.js':'text/javascript; charset=utf-8','.css':'text
 API={'/api/health','/api/glance','/api/limits','/api/settings','/api/notifications','/api/notifications/claim','/api/notifications/reserve','/api/notifications/release'}
 AUTH={'/auth/challenge','/auth/launch','/auth/redeem'}
 SOURCES='/api/sources/v1'
-SOURCE_GET={SOURCES,SOURCES+'/glance',SOURCES+'/catalog',SOURCES+'/notifications'}
-SOURCE_POST={SOURCES+'/'+route for route in ('discover','test','connect','disconnect','notifications/reserve','notifications/claim','notifications/release')}
+CI=SOURCES+'/ci'
+CI_SETTINGS=CI+'/settings'
+SOURCE_GET={SOURCES,SOURCES+'/glance',SOURCES+'/catalog',SOURCES+'/notifications',CI,CI_SETTINGS}
+SOURCE_POST={SOURCES+'/'+route for route in ('discover','test','connect','disconnect','notifications/reserve','notifications/claim','notifications/release')}|{CI_SETTINGS}
 SOURCE_SCHEMA=re.compile(re.escape(SOURCES)+r'/schema/([a-z0-9]+)')
 SOURCES_INIT=threading.Lock()
 ICON_PATH=re.compile(r'/api/project-icon/([0-9a-f]{32})')
@@ -82,6 +84,10 @@ class Handler(BaseHTTPRequestHandler):
             if path==SOURCES+'/glance':return self.send(200,service.glance(platform()))
             if path==SOURCES+'/catalog':return self.send(200,service.catalog())
             if path==SOURCES+'/notifications':return self.send(200,service.notifications())
+            if path==CI_SETTINGS:return self.send(200,service.ci.settings())
+            if path==CI:
+                service.ci.schedule()
+                return self.send(200,{'version':1,'ci':service.ci.read()})
             schema=SOURCE_SCHEMA.fullmatch(path)
             if schema:return self.send(200,service.schema(schema.group(1)))
             return self.send(405 if path in SOURCE_POST else 404,{'error':'method_not_allowed' if path in SOURCE_POST else 'not_found'})
@@ -89,6 +95,12 @@ class Handler(BaseHTTPRequestHandler):
         except Exception:return self.send(503,{'error':'storage_unavailable'})
     def source_post(self,value):
         service=self.sources();action=self.path[len(SOURCES)+1:]
+        if self.path==CI_SETTINGS:
+            if not isinstance(value,dict) or set(value)!={'enabled'} or type(value['enabled']) is not bool:
+                raise SourceError('invalid_request')
+            saved=service.ci.configure(value['enabled'])
+            service.poll()
+            return saved
         if action in ('discover','test','connect'):
             return getattr(service,action)(value,self.source_owner())
         if action=='disconnect':return service.disconnect(value)
@@ -182,7 +194,7 @@ def refresh_loop(service,stop):
     while not stop.is_set():
         try:service.poll()
         except Exception:pass # A malformed source or local file must never kill refresh.
-        stop.wait(20)
+        stop.wait(5)
 
 
 def main():

@@ -15,6 +15,7 @@ from pathlib import Path
 
 from agents_projection import display, project_agents, stamp, text
 from agents_service import AgentsService, outcome
+from ci_service import CIService, CI_SOURCE_ID
 from nagi_store import LocalStore
 from local_sources import binding, owned_root
 from source_adapters import ADAPTERS, COVERAGE, FLAGS
@@ -147,6 +148,7 @@ class SourcesService:
         legacy_service._source_base_factory=original
         legacy_service.factory=lambda directory: BoundedReader(original(directory),self.read_slots)
         self.peers, self.tests, self.services = {}, {}, {}
+        self.ci = CIService(self.store, self.local_home, self.clock, self.ci_candidates)
 
     def detect_origin(self,origin):
         if not self.read_slots.acquire(timeout=8):
@@ -328,6 +330,26 @@ class SourcesService:
                     service.providers={k:{**service.failed('unavailable',at,'invalid_source',v if v.get('data') else None,self.clock()),'warnings':[]}
                                        for k,v in service.providers.items()}
 
+    def ci_candidates(self):
+        active, ended = [], []
+        incomplete = False
+        now = self.clock()
+        with self.lock:
+            for entry in self.registry()['sources']:
+                if entry['harness'] not in ('claude', 'codex', 't3') or entry['placement']=='tailscale':
+                    continue
+                service = self.service_for(entry)
+                with service.lock:
+                    if (service.agents['status'] not in ('ok', 'quiet') or service.last_poll is None
+                            or not 0 <= (now - service.last_poll).total_seconds() <= 90):
+                        incomplete = True
+                        continue
+                    incomplete |= bool((service.agents['data'] or {}).get('omittedRows')
+                                       or 'coverage_incomplete' in (service.agents['data'] or {}).get('warnings', []))
+                    for candidate in service.ci_workspaces:
+                        (active if candidate[1]=='active' else ended).append(candidate)
+        return active + ended, incomplete
+
     def poll(self, force=False):
         with self.lock:
             if self.closed:
@@ -347,6 +369,7 @@ class SourcesService:
         if force:
             for future in waiting:
                 future.result()
+        self.ci.schedule()
 
     def close(self,*,wait=True):
         with self.lock:
@@ -357,6 +380,7 @@ class SourcesService:
                 record.get('configuration',{}).pop('pairing',None)
             self.tests.clear()
         self.executor.shutdown(wait=wait,cancel_futures=True)
+        self.ci.close(wait)
 
     @staticmethod
     def bound_sources(sources):
@@ -816,6 +840,9 @@ class SourcesService:
             events=[{'sourceId':e['id'],'event':event} for e in self.registry()['sources']
                     for event in self.service_for(e).notifications(include_limits=True)
                     if event['kind']!='low_limit' or self.limit_alert_allowed(e,event)]
+            with self.ci.lock:
+                if self.ci.enabled:
+                    events.extend({'sourceId':CI_SOURCE_ID,'event':e} for e in self.ci.delivery.notifications())
             events.sort(key=lambda e:(e['event']['occurredAt'],e['sourceId'],e['event']['id']))
             return {'version':1,'events':events[:256]}
 
@@ -861,6 +888,11 @@ class SourcesService:
 
     def notification_action(self, action, value):
         exact(value, ('sourceId', 'id') if action == 'reserve' else ('sourceId', 'id', 'reservation'))
+        if value['sourceId'] == CI_SOURCE_ID:
+            with self.ci.lock:
+                if not self.ci.enabled:
+                    raise SourceError('not_found', 404)
+                return self.delivery_action(self.ci.delivery, action, value)
         identity = source_id(value['sourceId'])
         with self.lifecycle(shared=True,source=identity):
             entry = next((e for e in self.registry()['sources'] if e['id'] == identity), None)
@@ -868,17 +900,21 @@ class SourcesService:
                 raise SourceError('not_found', 404)
             with self.lock:
                 service = self.service_for(entry)
-            try:
-                if action == 'reserve':
+            return self.delivery_action(service, action, value, entry)
+
+    def delivery_action(self, service, action, value, entry=None):
+        try:
+            if action == 'reserve':
+                if entry is not None:
                     event=next((e for e in service.journal().get('events',[]) if e['id']==value['id']),None)
                     if event and event['kind']=='low_limit' and not self.limit_alert_allowed(entry,event):
                         return {'version':1,'reserved':False,'lease':None}
-                    lease = service.reserve(value['id'],include_limits=True)
-                    return {'version': 1, 'reserved': lease is not None, 'lease': lease}
-                event = service.claim(value['id'], value['reservation'], release=action == 'release',include_limits=True)
-                return {'version': 1, 'released' if action == 'release' else 'claimed': event is not None, 'event': event}
-            except (ValueError, TypeError):
-                raise SourceError('invalid_request') from None
+                lease = service.reserve(value['id'],include_limits=True)
+                return {'version': 1, 'reserved': lease is not None, 'lease': lease}
+            event = service.claim(value['id'], value['reservation'], release=action == 'release',include_limits=True)
+            return {'version': 1, 'released' if action == 'release' else 'claimed': event is not None, 'event': event}
+        except (ValueError, TypeError):
+            raise SourceError('invalid_request') from None
 
     def project_icon(self, key):
         with self.lock:

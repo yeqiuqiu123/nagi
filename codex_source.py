@@ -91,7 +91,7 @@ def rate_windows(rate,at,now):
     return windows
 
 
-def project_rollouts(files,source_id,now,settings,*,signed_in=None):
+def project_rollouts(files,source_id,now,settings,*,signed_in=None,workspaces=None):
     rows={};observations={};unverified=False;omitted=0
     for path in files:
         try:
@@ -99,7 +99,7 @@ def project_rollouts(files,source_id,now,settings,*,signed_in=None):
             if meta is None:omitted+=1;continue
             if not standalone(meta):continue
             identity=text(meta['id'],128);parent=session_parent(meta)
-            model=None;row=None
+            model=None;row=None;cwd=meta.get('cwd')
             for record in records:
                 kind=record.get('type');payload=record.get('payload')
                 if not isinstance(payload,dict):continue
@@ -107,6 +107,7 @@ def project_rollouts(files,source_id,now,settings,*,signed_in=None):
                 try:
                     if not -5<=(now-stamp(at)).total_seconds()<=7*86400:continue
                     if kind=='turn_context':
+                        if isinstance(payload.get('cwd'),str):cwd=payload['cwd']
                         if isinstance(payload.get('model'),str):model=display(payload['model'],120)
                         continue
                     if kind!='event_msg':continue
@@ -154,7 +155,9 @@ def project_rollouts(files,source_id,now,settings,*,signed_in=None):
                 if row['model'] is None:row['model']=model
                 # Reverted/rotated duplicate rollout IDs never duplicate counts.
                 old=rows.get(identity)
-                if old is None or stamp(old['lastActivityAt'])<stamp(row['lastActivityAt']):rows[identity]=row
+                if old is None or stamp(old['lastActivityAt'])<stamp(row['lastActivityAt']):
+                    rows[identity]=row
+                    if workspaces is not None:workspaces[identity]=(cwd,None,None)
         except (OSError,ValueError,TypeError,KeyError,RecursionError):omitted+=1
     data,rows,modes=project_rows(rows,source_id,now,settings)
     data['omittedRows']=omitted
@@ -194,10 +197,10 @@ class CodexAdapter:
                 'capabilities':dict(self.potential_capabilities),'requirements':['passive_rollouts','codex_usage_opt_in']}
 
     def read(self,service,now,settings,caches,force=False):
-        at=now.isoformat();rows=modes=None;files=[]
+        at=now.isoformat();rows=modes=None;files=[];workspaces={}
         try:
             files,truncated=rollout_files(service.policy['home'],now)
-            data,rows,modes,limits=project_rollouts(files,service.source_id,now,settings)
+            data,rows,modes,limits=project_rollouts(files,service.source_id,now,settings,workspaces=workspaces)
             if truncated:data['warnings'].append('coverage_incomplete')
             agents=outcome('ok',at,at,data=data)
         except Exception:
@@ -210,4 +213,4 @@ class CodexAdapter:
         limits=read_limits(service,now,fallback)
         limits.setdefault('warnings',[])
         return {'agents':agents,'limits':{'codex':limits,'claude':{**outcome('unsupported',at,reason='account_unsupported'),'warnings':[]}},
-                'rows':rows,'modes':modes,'icon_sources':{},'success':True}
+                'rows':rows,'modes':modes,'icon_sources':{},'success':True,'workspaces':workspaces}
