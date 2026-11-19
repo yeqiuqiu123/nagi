@@ -59,6 +59,7 @@ Circles are checks. Triangles are deployments. Both sit at the trailing edge of 
 | Solid green disc with a check | Passed and merged: it landed |
 | Solid red disc with a cross | Checks failed |
 | Blue arc on a ring | Checks running; the arc is how many have finished |
+| Ring with a blue dot | Checks running, and the feed gives no count: no arc is guessed |
 | Grey ring with a dash | Cancelled |
 | Dashed grey ring with `?` | Couldn't check. Its tooltip gives the time it tried |
 | Any of these in grey | A reading from an earlier check |
@@ -75,6 +76,8 @@ No checks draws no mark. A check that passed is the quietest mark and a failure 
 Up to two marks at the trailing edge of the row's first line: checks, then deployment. Model and run time move left to make room, as detail text does beside an iOS accessory. The row itself still opens the thread; each mark opens its run or deployment. Nothing is written on the row: the PR number, the count of checks and the environment name are in the mark's tooltip and its spoken label.
 
 ### In the header
+
+When the header is full, the words that need you (`2 PRs`, `1 asks you`, `1 stuck`) take their own line under it, right-aligned, and the instruments keep the top line.
 
 One instrument, left of the gear: **a small ring cut into segments**, one per watched branch, red for failed, blue for running, green for passed. A red number beside it when anything failed. All green is one quiet full ring. A deployment appears beside it only when it is in flight, failed or waiting. Pressing either brings the first such row into view.
 
@@ -96,7 +99,8 @@ One 20 px mark in the header beside the checks ring: **concentric arcs, CPU outs
 |---|---|
 | GitHub is switched off (the default) | Nothing on the glance. Settings → Sources has the switch. |
 | Switched on but `gh` is missing or signed out | A `GH` chip in the rail with `not set up`; its detail says what to do |
-| GitHub couldn't be reached | The header ring is dashed with `?`; the rail says `couldn't check · tried 14:02`. No row draws a mark that pretends |
+| GitHub couldn't be reached | The header ring is dashed with `?`; the rail says `couldn't check · tried 14:02`, once. No row draws a mark that pretends, and the pull-request group and results strip are absent rather than repeating it |
+| Only the pull-request or results feed failed | That one place says `couldn't check` with the time |
 | One branch couldn't be read | That row's mark alone is the dashed `?` |
 | A reading kept from earlier | The same marks in grey, dated in the rail |
 | A partial list | Counts carry `+`: `2+ PRs` |
