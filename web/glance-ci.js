@@ -85,6 +85,11 @@
   const SEGMENT = /^[A-Za-z0-9._-]{1,200}$/;
   function safeGithub(value) {
     if (typeof value !== 'string' || value.length > 2048) return null;
+    // A branch with no pull request is linked to its repository's Actions page filtered by
+    // branch. The filter is a query, which the shells never open, so the link goes to the
+    // Actions page itself: one click short, never a dead mark.
+    const actions = /^(https:\/\/github\.com\/[^/?#]+\/[^/?#]+\/actions)\?query=branch%3A[A-Za-z0-9._%+-]{1,300}$/.exec(value);
+    if (actions) value = actions[1];
     for (let i = 0; i < value.length; i++) if (value.charCodeAt(i) < 33) return null;
     if (/[%?#\\@]/.test(value)) return null;
     const m = /^https:\/\/github\.com(\/.*)$/.exec(value);

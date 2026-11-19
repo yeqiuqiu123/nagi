@@ -388,6 +388,11 @@ test('only plain GitHub links pass; anything else is dropped to null', () => {
     'https://github.com/o/r/' + 'x'.repeat(201), 'https://github.com/' + 'o'.repeat(40) + '/r', 'https://github.com/o_x/r', 'https://github.com/o/r/' + 'a/'.repeat(1100) + 'a',
     'https://github.com/o/r/é', '', null, 42, {}];
   for (const url of bad) assert.equal(C.safeGithub(url), null, String(url));
+  // The reader's branch filter is dropped, leaving the repository's Actions page; nothing else with a query passes.
+  assert.equal(C.safeGithub('https://github.com/tidepool-labs/tidepool/actions?query=branch%3Afeature%2Foffline-sync'), 'https://github.com/tidepool-labs/tidepool/actions');
+  assert.equal(C.safeGithub('https://github.com/tidepool-labs/tidepool/actions?query=branch%3Amain&next=https://evil.example'), null);
+  assert.equal(C.safeGithub('https://github.com.evil.example/o/r/actions?query=branch%3Amain'), null);
+  assert.equal(C.safeGithub('https://github.com/o/r/pull/3?query=branch%3Amain'), null);
   const evil = 'https://github.com.evil.example/' + TP + '/pull/1';
   const r = build({ ci: ciFeed([row(['r1'], checks('failed', 2, 1, 1, evil), { pr: null, deploy: { ...deploy('success'), data: { ...deploy('success').data, url: 'http://github.com/o/r/deployments' } } })]),
     pulls: ok({ count: 1, rows: [{ repo: TP, number: 3, title: 'Tidy', url: 'https://user@github.com/o/r/pull/3', why: 'review_requested', ci: 'passed', updatedAt: at(1) }], omitted: false }) });
