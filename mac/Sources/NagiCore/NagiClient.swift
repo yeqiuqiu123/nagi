@@ -25,7 +25,7 @@ public struct NotificationEvent: Codable, Equatable, Sendable {
 
     private enum CodingKeys: String, CodingKey, CaseIterable {
         case id, kind, threadId, projectId, threadTitle, projectTitle, occurredAt, links
-        case provider, accountId, accountLabel, windowId, windowLabel, remainingPercent, resetsAt
+        case provider, accountId, accountLabel, windowId, windowLabel, remainingPercent, resetsAt, repo
     }
 
     public init(id: String, kind: String, threadId: String, projectId: String, threadTitle: String,
@@ -58,6 +58,15 @@ public struct NotificationEvent: Codable, Equatable, Sendable {
                       return !value.isEmpty && value.count <= 512 && !value.unicodeScalars.contains(where: { $0.value < 32 })
                   }), links?.desktop == nil, links?.web == nil else { throw OwnerSession.Failure.unavailable }
             threadId = ""; projectId = "limits"; threadTitle = ""; projectTitle = "Nagi"
+        } else if kind == "ci_failed" {
+            let repo = try c.decode(String.self, forKey: .repo)
+            guard repo.range(of: #"\A[A-Za-z0-9][A-Za-z0-9-]{0,38}/[A-Za-z0-9_.-]{1,100}\z"#,
+                             options: .regularExpression) != nil,
+                  !repo.hasSuffix("/."), !repo.hasSuffix("/.."), Self.date(occurredAt) != nil,
+                  links?.desktop == nil, links?.web == nil else { throw OwnerSession.Failure.unavailable }
+            threadId = ""; projectId = repo; threadTitle = ""; projectTitle = repo
+            provider = nil; accountId = nil; accountLabel = nil; windowId = nil; windowLabel = nil
+            remainingPercent = nil; resetsAt = nil
         } else {
             guard kind == "failed" || kind == "stuck" else { throw OwnerSession.Failure.unavailable }
             threadId = try c.decode(String.self, forKey: .threadId)
@@ -78,6 +87,8 @@ public struct NotificationEvent: Codable, Equatable, Sendable {
             try c.encode(accountLabel, forKey: .accountLabel); try c.encode(windowId, forKey: .windowId)
             try c.encode(windowLabel, forKey: .windowLabel); try c.encode(remainingPercent, forKey: .remainingPercent)
             try c.encode(resetsAt, forKey: .resetsAt)
+        } else if kind == "ci_failed" {
+            try c.encode(projectId, forKey: .repo)
         } else {
             try c.encode(threadId, forKey: .threadId); try c.encode(projectId, forKey: .projectId)
             try c.encode(threadTitle, forKey: .threadTitle); try c.encode(projectTitle, forKey: .projectTitle)
@@ -88,11 +99,13 @@ public struct NotificationEvent: Codable, Equatable, Sendable {
     // microsecond `+00:00` reset must never make the whole pending list undecodable).
     private static func date(_ value: String) -> Date? { NagiTime.parse(value) }
 
-    public var opensPanel: Bool { kind == "low_limit" }
+    public var opensPanel: Bool { kind == "low_limit" || kind == "ci_failed" }
     public var bannerTitle: String {
-        opensPanel ? (accountLabel ?? "Account") + " · " + String(format: "%g", remainingPercent ?? 0) + "% left" : projectTitle + " · " + threadTitle
+        if kind == "ci_failed" { return projectTitle }
+        return opensPanel ? (accountLabel ?? "Account") + " · " + String(format: "%g", remainingPercent ?? 0) + "% left" : projectTitle + " · " + threadTitle
     }
     public var bannerBody: String {
+        if kind == "ci_failed" { return "CI checks failed." }
         if opensPanel, let reset = resetsAt, let date = Self.date(reset) {
             let formatter = DateFormatter(); formatter.locale = Locale(identifier: "en_US_POSIX")
             formatter.dateFormat = "EEE HH:mm"
@@ -118,9 +131,9 @@ public struct PendingNotification: Decodable, Equatable, Sendable {
     public let event: NotificationEvent
     public init(sourceId: String, event: NotificationEvent) { self.sourceId = sourceId; self.event = event }
 
-    /// `legacy-t3` (the pre-sources T3 binding, same journal and claims) or 32 lowercase hex.
+    /// Reserved legacy T3 and GitHub CI journals or 32 lowercase hex.
     public static func validSourceId(_ value: String) -> Bool {
-        value == "legacy-t3" || value.range(of: "\\A[0-9a-f]{32}\\z", options: .regularExpression) != nil
+        value == "legacy-t3" || value == "github-ci" || value.range(of: "\\A[0-9a-f]{32}\\z", options: .regularExpression) != nil
     }
 }
 

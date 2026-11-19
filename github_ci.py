@@ -1,17 +1,17 @@
 """GitHub CLI reads and closed CI/deployment projections."""
 import os
-from pathlib import Path
 import re
 import shutil
 import subprocess
-from urllib.parse import quote, urlencode
+import threading
+from urllib.parse import urlencode
 
 from agents_projection import stamp
-from ci_workspace import env_path, run_bounded
+from ci_workspace import env_path, repo_name, run_bounded
 from jsonio import strict_json_loads
 
 QUERY = """
-query($owner: String!, $repo: String!, $ref: String!) {
+query($owner: String!, $repo: String!, $ref: String!, $branch: String!, $ended: Boolean!) {
   repository(owner: $owner, name: $repo) {
     ref(qualifiedName: $ref) {
       target {
@@ -29,8 +29,40 @@ query($owner: String!, $repo: String!, $ref: String!) {
           }
         }
       }
-      associatedPullRequests(first: 1, states: [OPEN]) {
+      associatedPullRequests(first: 10, states: [OPEN], orderBy: {field: UPDATED_AT, direction: DESC}) {
         nodes { number headRefOid isCrossRepository }
+      }
+    }
+    historical: pullRequests(first: 20, headRefName: $branch,
+      orderBy: {field: UPDATED_AT, direction: DESC}) @include(if: $ended) {
+      pageInfo { hasNextPage }
+      nodes { ...PullSummary }
+    }
+  }
+}
+"""
+
+PULL_SUMMARY = """
+fragment PullSummary on PullRequest {
+  number title updatedAt state isDraft reviewDecision mergeable mergeStateStatus
+  headRefName headRepository { nameWithOwner }
+  statusCheckRollup { state }
+}
+"""
+
+WAITING_QUERY = """
+query($owner: String!, $repo: String!) {
+  viewer { login }
+  repository(owner: $owner, name: $repo) {
+    pullRequests(first: 50, states: [OPEN], orderBy: {field: UPDATED_AT, direction: DESC}) {
+      pageInfo { hasNextPage }
+      nodes {
+        ...PullSummary
+        author { login }
+        reviewRequests(first: 30) {
+          pageInfo { hasNextPage }
+          nodes { requestedReviewer { ... on User { login } } }
+        }
       }
     }
   }
@@ -71,6 +103,8 @@ class GitHub:
         if not self.executable:
             raise GitHubError('gh_missing')
         self.home, self.active = home, active
+        self.lock = threading.Lock()
+        self.stop_reason = None
         self.env = {'HOME': str(home), 'PATH': path, 'LC_ALL': 'C',
                     'GH_HOST': 'github.com', 'GH_PROMPT_DISABLED': '1',
                     'GH_NO_UPDATE_NOTIFIER': '1', 'GH_NO_EXTENSION_UPDATE_NOTIFIER': '1',
@@ -79,20 +113,20 @@ class GitHub:
                     'XDG_RUNTIME_DIR'):
             if value := os.environ.get(key):
                 self.env[key] = value
-        # gh supports API-host and socket overrides in its own config. Probe
-        # their presence through gh without reading the values or its auth store.
+        # An owner-configured transport could send these reads elsewhere.
+        # Ask gh about routing keys only. Never query its credentials.
         for key in ('api_host', 'http_unix_socket'):
-            code, _, _ = self.command('config', 'get', key, '--host', 'github.com', discard=True)
-            if code != 1:
+            code, raw, _ = self.command('config', 'get', key, '--host', 'github.com')
+            if code not in (0, 1) or raw.strip():
                 raise GitHubError('cannot_reach_github')
 
-    def command(self, *args, discard=False):
+    def command(self, *args):
         if not self.active():
             raise GitHubError('disabled')
         try:
             return run_bounded([self.executable, *args], env=self.env, cwd=self.home,
                                timeout=4, output_limit=MAX_OUTPUT,
-                               stderr_limit=0 if discard else 8192, discard=discard)
+                               stderr_limit=8192)
         except FileNotFoundError:
             raise GitHubError('gh_missing') from None
         except ValueError:
@@ -101,28 +135,41 @@ class GitHub:
             raise GitHubError('cannot_reach_github') from None
 
     def api(self, endpoint, *args):
+        with self.lock:
+            if self.stop_reason:
+                raise GitHubError(self.stop_reason)
         code, raw, detail = self.command('api', endpoint, '--hostname', 'github.com', *args)
         if code:
-            raise GitHubError(failure_reason(detail))
+            reason = failure_reason(detail)
+            if reason in {'rate_limited', 'gh_signed_out'}:
+                with self.lock:
+                    self.stop_reason = reason
+            raise GitHubError(reason)
         try:
             return strict_json_loads(raw, MAX_OUTPUT)
         except (ValueError, TypeError, RecursionError):
             raise GitHubError('invalid_response') from None
 
     def graphql(self, query, **fields):
-        variables = [arg for key, value in fields.items() for arg in ('-f', f'{key}={value}')]
+        variables = []
+        for key, value in fields.items():
+            variables.extend(('-F', f'{key}={str(value).lower()}') if type(value) is bool
+                             else ('-f', f'{key}={value}'))
         result = self.api('graphql', '-f', 'query=' + query, *variables)
         if not isinstance(result, dict) or result.get('errors'):
             raise GitHubError('invalid_response')
         return result.get('data')
 
-    def checks(self, repo, branch):
+    def checks(self, repo, branch, ended=False):
         owner, name = repo.split('/')
+        repository = self.graphql(QUERY + PULL_SUMMARY, owner=owner, repo=name,
+                                  ref='refs/heads/' + branch, branch=branch, ended=ended)
         try:
-            repository = self.graphql(QUERY, owner=owner, repo=name, ref='refs/heads/' + branch)['repository']
+            repository = repository['repository']
+            historical, partial = historical_pull(repository['historical'], repo, branch) if ended else (None, False)
             ref = repository['ref']
             if ref is None:
-                raise GitHubError('branch_unavailable')
+                return None, None, 'branch_unavailable', historical, partial
             commit = ref['target']
             sha = commit['oid']
             if not isinstance(sha, str) or not SHA.fullmatch(sha):
@@ -130,9 +177,37 @@ class GitHub:
             pr = next((node for node in ref['associatedPullRequests']['nodes']
                        if node['headRefOid'] == sha and node['isCrossRepository'] is False), None)
             url = f'https://github.com/{repo}'
-            link = {'number': number(pr['number']), 'url': f"{url}/pull/{number(pr['number'])}"} if pr else None
+            pr_number = number(pr['number']) if pr else None
+            link = {'number': pr_number, 'url': f'{url}/pull/{pr_number}'} if pr_number else None
             checks_url = link['url'] if link else f'{url}/actions?' + urlencode({'query': 'branch:' + branch})
-            return sha, link, check_rollup(commit['statusCheckRollup'], checks_url)
+            try:
+                checks = check_rollup(commit['statusCheckRollup'], checks_url)
+            except GitHubError as exc:
+                checks = exc.args[0]
+            except (KeyError, TypeError, ValueError):
+                checks = 'invalid_response'
+            return sha, link, checks, historical, partial
+        except (TypeError, ValueError, KeyError, AttributeError):
+            raise GitHubError('invalid_response') from None
+
+    def waiting_pulls(self, repo, pairs):
+        owner, name = repo.split('/')
+        data = self.graphql(WAITING_QUERY + PULL_SUMMARY, owner=owner, repo=name)
+        try:
+            viewer = data['viewer']['login'].lower()
+            nodes, partial = connection(data['repository']['pullRequests'], 50)
+            rows = []
+            for pr in nodes:
+                if pr['isDraft'] is True:
+                    continue
+                author = (pr.get('author') or {}).get('login')
+                if (not isinstance(author, str) or author.lower() != viewer) and (head_repo(pr), pr['headRefName']) not in pairs:
+                    continue
+                projection, why, omitted = attention_pull(pr, repo, viewer)
+                partial |= omitted
+                if why:
+                    rows.append(dict(projection, why=why))
+            return rows, partial
         except (TypeError, ValueError, KeyError, AttributeError):
             raise GitHubError('invalid_response') from None
 
@@ -207,3 +282,84 @@ def check_rollup(rollup, url):
     return {'state': state, 'total': len(nodes), 'passed': counts['passed'],
             'failed': counts['failed'], 'running': counts['running'], 'url': url,
             'updatedAt': max(updated).isoformat() if updated else None}
+
+
+PULL_CI = {'SUCCESS': 'passed', 'PENDING': 'running', 'EXPECTED': 'running',
+           'FAILURE': 'failed', 'ERROR': 'failed'}
+
+
+def connection(value, maximum):
+    nodes, partial = value['nodes'], value['pageInfo']['hasNextPage']
+    if not isinstance(nodes, list) or len(nodes) > maximum or type(partial) is not bool:
+        raise ValueError()
+    return nodes, partial
+
+
+def head_repo(pr):
+    name = (pr['headRepository'] or {}).get('nameWithOwner')
+    return name.lower() if repo_name(name) else None
+
+
+def pull_summary(pr, repo):
+    pr_number = number(pr['number'])
+    title = pr['title']
+    # Slash, dot and credential-like strings can carry paths, hosts, URLs or IDs.
+    if (not isinstance(title, str) or not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9 ,!?:()'_-]{0,119}", title)
+            or re.search(r'[A-Za-z0-9_-]{20,}', title)):
+        title = f'Pull request #{pr_number}'
+    rollup = pr['statusCheckRollup']
+    ci = PULL_CI.get(rollup['state']) if rollup is not None else 'none'
+    return {'repo': repo, 'number': pr_number, 'title': title,
+            'url': f'https://github.com/{repo}/pull/{pr_number}', 'ci': ci,
+            'updatedAt': iso(pr['updatedAt'])}
+
+
+def ready_to_merge(pr, ci):
+    return pr['reviewDecision'] == 'APPROVED' or (
+        pr['mergeable'] == 'MERGEABLE' and pr['mergeStateStatus'] in ('CLEAN', 'HAS_HOOKS')
+        and ci == 'passed')
+
+
+def attention_pull(pr, repo, viewer):
+    summary = pull_summary(pr, repo)
+    requests = pr['reviewRequests']
+    if requests is None:
+        reviewers, partial = [], True
+    else:
+        reviewers, partial = connection(requests, 30)
+    requested = any(isinstance(login, str) and viewer == login.lower()
+                    for request in reviewers
+                    if (login := (request['requestedReviewer'] or {}).get('login')) is not None)
+    if requested:
+        reason = 'review_requested'
+    elif pr['reviewDecision'] == 'CHANGES_REQUESTED':
+        reason = 'changes_requested'
+    elif ready_to_merge(pr, summary['ci']):
+        reason = 'ready_to_merge'
+    else:
+        reason = None
+    return summary, reason, partial and not requested
+
+
+def historical_pull(connection_value, repo, branch):
+    nodes, partial = connection(connection_value, 20)
+    # Keep the latest updated matching PR. A fork with the same branch
+    # name is a different workspace even when its PR targets this repo.
+    pr = next((node for node in nodes if head_repo(node) == repo and node['headRefName'] == branch), None)
+    if not pr:
+        return None, partial
+    summary = pull_summary(pr, repo)
+    state = pr['state']
+    if state in ('MERGED', 'CLOSED'):
+        merged = state.lower()
+    elif state != 'OPEN':
+        merged = 'unknown'
+    elif pr['isDraft']:
+        merged = 'draft'
+    elif pr['reviewDecision'] == 'CHANGES_REQUESTED':
+        merged = 'changes_requested'
+    elif ready_to_merge(pr, summary['ci']):
+        merged = 'ready_to_merge'
+    else:
+        merged = 'open'
+    return dict(summary, mergeState=merged), False

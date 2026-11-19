@@ -334,6 +334,7 @@ final class FakeBackend: NotificationBackend, @unchecked Sendable {
         #expect(await relay.poll() == [.claimed("a"), .claimed("b")])
         #expect(backend.calls == ["list", "reserve legacy-t3 a", "claim legacy-t3 a r-a", "reserve \(other) b", "claim \(other) b r-b"])
         #expect(PendingNotification.validSourceId("legacy-t3"))
+        #expect(PendingNotification.validSourceId("github-ci"))
         #expect(PendingNotification.validSourceId(other))
         for bad in ["", "LEGACY-T3", String(repeating: "A", count: 32), String(repeating: "a", count: 31), "../x"] {
             #expect(!PendingNotification.validSourceId(bad), "\(bad)")
@@ -490,4 +491,16 @@ final class FakeBackend: NotificationBackend, @unchecked Sendable {
             }
         }
     }
+}
+
+@Test func githubCIBannerOpensPanel() throws {
+    let raw = """
+    {"sourceId":"github-ci","event":{"id":"example","kind":"ci_failed","repo":"demo/kestrel",
+      "occurredAt":"2026-11-19T00:00:00Z","links":{"desktop":null,"web":null}}}
+    """
+    let pending = try JSONDecoder().decode(PendingNotification.self, from: Data(raw.utf8))
+    #expect(PendingNotification.validSourceId(pending.sourceId))
+    #expect(pending.event.bannerTitle == "demo/kestrel")
+    #expect(pending.event.bannerBody == "CI checks failed.")
+    #expect(pending.event.opensPanel)
 }

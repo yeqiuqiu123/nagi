@@ -197,7 +197,7 @@ class ClaudeAdapter:
         limits.setdefault('warnings',[])
         return {'agents':agents,'limits':{'claude':limits,'codex':{**outcome('unsupported',at,reason='account_unsupported'),'warnings':[]}},
                 'rows':rows,'modes':modes,'icon_sources':{},'success':True,
-                'workspaces':{key:workspaces.get(key) or workspaces.get(key.split('/',1)[0])
+                'workspaces':{key:workspaces.get(key,workspaces.get(key.split('/',1)[0]))
                               for key,mode in (modes or {}).items() if mode}}
 
 

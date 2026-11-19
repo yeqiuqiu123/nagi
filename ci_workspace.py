@@ -32,11 +32,11 @@ def env_path():
     return os.pathsep.join(path for path in paths if os.path.isabs(path))
 
 
-def run_bounded(argv, *, env, cwd, timeout, output_limit, stderr_limit=0, discard=False):
+def run_bounded(argv, *, env, cwd, timeout, output_limit, stderr_limit=0):
     """Read only bounded pipes and reap the subprocess on every exit path."""
     deadline = time.monotonic() + timeout
     with subprocess.Popen(argv, cwd=cwd, env=env, stdin=subprocess.DEVNULL,
-                          stdout=subprocess.DEVNULL if discard else subprocess.PIPE,
+                          stdout=subprocess.PIPE,
                           stderr=subprocess.PIPE if stderr_limit else subprocess.DEVNULL) as proc:
         buffers = [bytearray(), bytearray()]
         try:
@@ -93,7 +93,7 @@ def resolve_workspace(cwd, branch=None, *, timeout=1.0):
             branch = read('symbolic-ref', '--quiet', '--short', 'HEAD')
         if not branch_name(branch):
             return None
-        remote = read('config', '--local', '--get', f'branch.{branch}.remote') or 'origin'
+        remote = read('config', '--local', '--get', f'branch.{branch}.remote', r'^[A-Za-z0-9][A-Za-z0-9_.-]{0,100}$') or 'origin'
         if not REMOTE_NAME.fullmatch(remote):
             return None
         url = read('config', '--local', '--get', f'remote.{remote}.url', REMOTE_FILTER)
